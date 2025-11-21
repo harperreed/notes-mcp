@@ -27,6 +27,9 @@ type NotesService interface {
 	// GetNoteContent retrieves the full content of a note by title
 	GetNoteContent(ctx context.Context, title string) (string, error)
 
+	// GetNoteMetadata retrieves full metadata for a note including dates, folder, and sharing info
+	GetNoteMetadata(ctx context.Context, title string) (*Note, error)
+
 	// UpdateNote updates an existing note's content by title
 	UpdateNote(ctx context.Context, title, content string) error
 
@@ -149,6 +152,7 @@ func (s *AppleNotesService) formatContent(content string) string {
 }
 
 // CreateNote creates a new note in Apple Notes with the given title, content, and tags
+// Returns Note with full metadata including creation/modification dates, folder, and sharing status
 // Tags are stored in the Note struct but not passed to AppleScript (matching TypeScript behavior)
 func (s *AppleNotesService) CreateNote(ctx context.Context, title, content string, tags []string) (*Note, error) {
 	// Format content and escape title
@@ -176,20 +180,21 @@ func (s *AppleNotesService) CreateNote(ctx context.Context, title, content strin
 	// Log success (stdout might contain confirmation)
 	_ = stdout
 
-	// Return the note object with generated ID
-	now := time.Now()
-	return &Note{
-		ID:       fmt.Sprintf("%d", now.UnixMilli()),
-		Title:    title,
-		Content:  content,
-		Tags:     tags,
-		Created:  now,
-		Modified: now,
-	}, nil
+	// Get full metadata for the newly created note
+	note, err := s.GetNoteMetadata(ctx, title)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get metadata for created note: %w", err)
+	}
+
+	// Populate fields not available from metadata
+	note.Content = content
+	note.Tags = tags
+
+	return note, nil
 }
 
 // SearchNotes searches for notes containing the query string in their title
-// Returns notes with empty Content (search doesn't retrieve full bodies)
+// Returns notes with full metadata but empty Content (search doesn't retrieve full bodies)
 func (s *AppleNotesService) SearchNotes(ctx context.Context, query string) ([]Note, error) {
 	safeQuery := s.escapeForAppleScript(query)
 
@@ -229,22 +234,27 @@ func (s *AppleNotesService) SearchNotes(ctx context.Context, query string) ([]No
 	// Parse delimiter-separated output
 	titles := strings.Split(stdout, "|||")
 	notes := make([]Note, 0, len(titles))
-	now := time.Now()
 
+	// Get full metadata for each note
 	for _, title := range titles {
 		title = strings.TrimSpace(title)
 		if title == "" {
 			continue
 		}
 
-		notes = append(notes, Note{
-			ID:       fmt.Sprintf("%d", now.UnixMilli()),
-			Title:    title,
-			Content:  "", // Search doesn't retrieve content
-			Tags:     []string{},
-			Created:  now,
-			Modified: now,
-		})
+		// Get metadata for this note
+		note, err := s.GetNoteMetadata(ctx, title)
+		if err != nil {
+			// Log error but continue with other notes
+			// Return partial results rather than failing completely
+			continue
+		}
+
+		// Content is not retrieved in search (only metadata)
+		note.Content = ""
+		note.Tags = []string{}
+
+		notes = append(notes, *note)
 	}
 
 	return notes, nil

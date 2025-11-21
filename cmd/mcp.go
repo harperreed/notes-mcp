@@ -155,11 +155,17 @@ func registerCreateNoteTool(server *mcp.Server, notesService services.NotesServi
 			return createErrorResult(err), nil, nil
 		}
 
-		// Return success result
+		// Marshal note to JSON for structured output with full metadata
+		noteJSON, err := json.MarshalIndent(note, "", "  ")
+		if err != nil {
+			return createErrorResult(fmt.Errorf("failed to format note: %w", err)), nil, nil
+		}
+
+		// Return success result with full note details
 		return &mcp.CallToolResult{
 			Content: []mcp.Content{
 				&mcp.TextContent{
-					Text: fmt.Sprintf("Note created: %s", note.Title),
+					Text: string(noteJSON),
 				},
 			},
 		}, nil, nil
@@ -167,7 +173,7 @@ func registerCreateNoteTool(server *mcp.Server, notesService services.NotesServi
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "create_note",
-		Description: "Creates a new note in Apple Notes with the specified title, content, and optional tags. Returns confirmation of note creation.",
+		Description: "Creates a new note in Apple Notes with the specified title, content, and optional tags. Returns the created note with full metadata including creation/modification dates, folder, and sharing status as JSON.",
 	}, handler)
 }
 
@@ -208,19 +214,13 @@ func registerSearchNotesTool(server *mcp.Server, notesService services.NotesServ
 			notes = notes[:maxSearchResults]
 		}
 
-		// Format the results as newline-separated list of titles
-		var titles []string
-		for _, note := range notes {
-			titles = append(titles, note.Title)
-		}
-		result := strings.Join(titles, "\n")
-
-		// Add indicator if results were limited
-		if totalNotes > maxSearchResults {
-			result = fmt.Sprintf("%s\n\n(Showing first %d of %d matching notes)", result, maxSearchResults, totalNotes)
+		// Format results with metadata as JSON
+		result, err := formatSearchResults(notes, totalNotes)
+		if err != nil {
+			return createErrorResult(err), nil, nil
 		}
 
-		// Return success result
+		// Return success result with full note metadata
 		return &mcp.CallToolResult{
 			Content: []mcp.Content{
 				&mcp.TextContent{
@@ -232,7 +232,7 @@ func registerSearchNotesTool(server *mcp.Server, notesService services.NotesServ
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "search_notes",
-		Description: "Searches for notes in Apple Notes by title. Returns a list of matching note titles, or a message if no notes are found.",
+		Description: "Searches for notes in Apple Notes by title. Returns a list of matching notes with full metadata including creation/modification dates, folder, and sharing status as JSON.",
 	}, handler)
 }
 
@@ -250,17 +250,32 @@ func registerGetNoteContentTool(server *mcp.Server, notesService services.NotesS
 		opCtx, cancel := context.WithTimeout(ctx, getOperationTimeout())
 		defer cancel()
 
-		// Call the service
+		// Get note metadata
+		note, err := notesService.GetNoteMetadata(opCtx, input.Title)
+		if err != nil {
+			return createErrorResult(err), nil, nil
+		}
+
+		// Get note content
 		content, err := notesService.GetNoteContent(opCtx, input.Title)
 		if err != nil {
 			return createErrorResult(err), nil, nil
 		}
 
-		// Return success result with raw HTML body
+		// Populate content field
+		note.Content = content
+
+		// Marshal note to JSON for structured output with full metadata
+		noteJSON, err := json.MarshalIndent(note, "", "  ")
+		if err != nil {
+			return createErrorResult(fmt.Errorf("failed to format note: %w", err)), nil, nil
+		}
+
+		// Return success result with full note details
 		return &mcp.CallToolResult{
 			Content: []mcp.Content{
 				&mcp.TextContent{
-					Text: content,
+					Text: string(noteJSON),
 				},
 			},
 		}, nil, nil
@@ -268,7 +283,7 @@ func registerGetNoteContentTool(server *mcp.Server, notesService services.NotesS
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "get_note_content",
-		Description: "Retrieves the full content of a note from Apple Notes by its title. Returns the raw HTML body of the note.",
+		Description: "Retrieves the full content and metadata of a note from Apple Notes by its title. Returns the note with all fields including creation/modification dates, folder, sharing status, and content as JSON.",
 	}, handler)
 }
 

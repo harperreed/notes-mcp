@@ -6,6 +6,7 @@ package services
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"strings"
 	"testing"
@@ -21,6 +22,25 @@ type MockExecutor struct {
 
 func (m *MockExecutor) Execute(ctx context.Context, script string) (string, string, error) {
 	return m.stdout, m.stderr, m.err
+}
+
+// SequentialMockExecutor implements ScriptExecutor for testing with multiple sequential responses
+type SequentialMockExecutor struct {
+	responses []struct {
+		stdout string
+		stderr string
+		err    error
+	}
+	callIndex int
+}
+
+func (m *SequentialMockExecutor) Execute(ctx context.Context, script string) (string, string, error) {
+	if m.callIndex >= len(m.responses) {
+		return "", "", fmt.Errorf("unexpected call to Execute (call %d, only %d responses configured)", m.callIndex, len(m.responses))
+	}
+	resp := m.responses[m.callIndex]
+	m.callIndex++
+	return resp.stdout, resp.stderr, resp.err
 }
 
 // TestNoteJSONMarshaling verifies Note struct has correct JSON tags
@@ -340,12 +360,20 @@ func TestFormatContent(t *testing.T) {
 	}
 }
 
-// TestCreateNote tests successful note creation
+// TestCreateNote tests successful note creation with full metadata retrieval
 func TestCreateNote(t *testing.T) {
-	executor := &MockExecutor{
-		stdout: "note created",
-		stderr: "",
-		err:    nil,
+	// Mock metadata response from GetNoteMetadata call
+	metadataResponse := `{id:"x-coredata://12345", name:"Test Note", creation date:date "Monday, January 1, 2024 at 10:00:00 AM", modification date:date "Monday, January 1, 2024 at 11:30:00 AM", container:"Work", shared:true, password protected:false}`
+
+	executor := &SequentialMockExecutor{
+		responses: []struct {
+			stdout string
+			stderr string
+			err    error
+		}{
+			{stdout: "note created", stderr: "", err: nil},   // CreateNote response
+			{stdout: metadataResponse, stderr: "", err: nil}, // GetNoteMetadata response
+		},
 	}
 
 	service := NewAppleNotesService(executor)
@@ -360,6 +388,7 @@ func TestCreateNote(t *testing.T) {
 		t.Fatalf("CreateNote failed: %v", err)
 	}
 
+	// Verify basic fields
 	if note.Title != title {
 		t.Errorf("Note title = %q, want %q", note.Title, title)
 	}
@@ -372,26 +401,55 @@ func TestCreateNote(t *testing.T) {
 		t.Errorf("Note tags length = %d, want %d", len(note.Tags), len(tags))
 	}
 
-	if note.ID == "" {
-		t.Error("Note ID should not be empty")
+	// Verify metadata fields are populated
+	if note.ID == "" || note.ID == fmt.Sprintf("%d", time.Now().UnixMilli()) {
+		t.Error("Note ID should be populated from metadata, not generated")
 	}
 
-	// Verify timestamps are set
-	if note.Created.IsZero() {
-		t.Error("Note created timestamp should be set")
+	if note.Folder != "Work" {
+		t.Errorf("Note folder = %q, want %q", note.Folder, "Work")
 	}
 
-	if note.Modified.IsZero() {
-		t.Error("Note modified timestamp should be set")
+	if !note.Shared {
+		t.Error("Note shared should be true from metadata")
+	}
+
+	if note.PasswordProtected {
+		t.Error("Note password_protected should be false from metadata")
+	}
+
+	// Verify timestamps are set from metadata
+	if note.Created.IsZero() || note.CreationDate.IsZero() {
+		t.Error("Note creation timestamps should be set from metadata")
+	}
+
+	if note.Modified.IsZero() || note.ModificationDate.IsZero() {
+		t.Error("Note modification timestamps should be set from metadata")
+	}
+
+	// Verify both timestamp fields are synchronized
+	if !note.Created.Equal(note.CreationDate) {
+		t.Errorf("Created and CreationDate should be equal: %v != %v", note.Created, note.CreationDate)
+	}
+
+	if !note.Modified.Equal(note.ModificationDate) {
+		t.Errorf("Modified and ModificationDate should be equal: %v != %v", note.Modified, note.ModificationDate)
 	}
 }
 
-// TestCreateNoteWithSpecialCharacters tests escaping in note creation
+// TestCreateNoteWithSpecialCharacters tests escaping in note creation with metadata
 func TestCreateNoteWithSpecialCharacters(t *testing.T) {
-	executor := &MockExecutor{
-		stdout: "note created",
-		stderr: "",
-		err:    nil,
+	metadataResponse := `{id:"x-coredata://67890", name:"Note with \"quotes\"", creation date:date "Monday, January 1, 2024 at 10:00:00 AM", modification date:date "Monday, January 1, 2024 at 10:00:00 AM", container:"Notes", shared:false, password protected:false}`
+
+	executor := &SequentialMockExecutor{
+		responses: []struct {
+			stdout string
+			stderr string
+			err    error
+		}{
+			{stdout: "note created", stderr: "", err: nil},
+			{stdout: metadataResponse, stderr: "", err: nil},
+		},
 	}
 
 	service := NewAppleNotesService(executor)
@@ -407,6 +465,15 @@ func TestCreateNoteWithSpecialCharacters(t *testing.T) {
 
 	if note.Title != title {
 		t.Errorf("Note title = %q, want %q", note.Title, title)
+	}
+
+	// Verify metadata was populated
+	if note.ID == "" {
+		t.Error("Note ID should be populated from metadata")
+	}
+
+	if note.Folder == "" {
+		t.Error("Note folder should be populated from metadata")
 	}
 }
 
@@ -432,12 +499,21 @@ func TestCreateNoteError(t *testing.T) {
 	}
 }
 
-// TestSearchNotes tests successful note search
+// TestSearchNotes tests successful note search with full metadata
 func TestSearchNotes(t *testing.T) {
-	executor := &MockExecutor{
-		stdout: "Meeting Notes|||Project Ideas|||Random Thoughts",
-		stderr: "",
-		err:    nil,
+	executor := &SequentialMockExecutor{
+		responses: []struct {
+			stdout string
+			stderr string
+			err    error
+		}{
+			// Search response
+			{stdout: "Meeting Notes|||Project Ideas|||Random Thoughts", stderr: "", err: nil},
+			// GetNoteMetadata responses for each note
+			{stdout: `{id:"x-coredata://1", name:"Meeting Notes", creation date:date "Monday, January 1, 2024 at 10:00:00 AM", modification date:date "Monday, January 1, 2024 at 11:00:00 AM", container:"Work", shared:false, password protected:false}`, stderr: "", err: nil},
+			{stdout: `{id:"x-coredata://2", name:"Project Ideas", creation date:date "Monday, January 1, 2024 at 12:00:00 PM", modification date:date "Monday, January 1, 2024 at 1:00:00 PM", container:"Personal", shared:true, password protected:false}`, stderr: "", err: nil},
+			{stdout: `{id:"x-coredata://3", name:"Random Thoughts", creation date:date "Monday, January 1, 2024 at 2:00:00 PM", modification date:date "Monday, January 1, 2024 at 3:00:00 PM", container:"Notes", shared:false, password protected:true}`, stderr: "", err: nil},
+		},
 	}
 
 	service := NewAppleNotesService(executor)
@@ -452,20 +528,54 @@ func TestSearchNotes(t *testing.T) {
 		t.Fatalf("Expected 3 notes, got %d", len(notes))
 	}
 
-	expectedTitles := []string{"Meeting Notes", "Project Ideas", "Random Thoughts"}
+	// Verify each note has full metadata
+	expectedData := []struct {
+		title             string
+		folder            string
+		shared            bool
+		passwordProtected bool
+	}{
+		{"Meeting Notes", "Work", false, false},
+		{"Project Ideas", "Personal", true, false},
+		{"Random Thoughts", "Notes", false, true},
+	}
+
 	for i, note := range notes {
-		if note.Title != expectedTitles[i] {
-			t.Errorf("Note %d title = %q, want %q", i, note.Title, expectedTitles[i])
+		expected := expectedData[i]
+
+		if note.Title != expected.title {
+			t.Errorf("Note %d title = %q, want %q", i, note.Title, expected.title)
 		}
 
-		// Content should be empty in search results
+		// Content should still be empty in search results
 		if note.Content != "" {
 			t.Errorf("Note %d content should be empty, got %q", i, note.Content)
 		}
 
-		// ID should be set
+		// Metadata fields should be populated
 		if note.ID == "" {
 			t.Errorf("Note %d ID should not be empty", i)
+		}
+
+		if note.Folder != expected.folder {
+			t.Errorf("Note %d folder = %q, want %q", i, note.Folder, expected.folder)
+		}
+
+		if note.Shared != expected.shared {
+			t.Errorf("Note %d shared = %v, want %v", i, note.Shared, expected.shared)
+		}
+
+		if note.PasswordProtected != expected.passwordProtected {
+			t.Errorf("Note %d password_protected = %v, want %v", i, note.PasswordProtected, expected.passwordProtected)
+		}
+
+		// Timestamps should be set
+		if note.Created.IsZero() || note.CreationDate.IsZero() {
+			t.Errorf("Note %d creation timestamps should be set", i)
+		}
+
+		if note.Modified.IsZero() || note.ModificationDate.IsZero() {
+			t.Errorf("Note %d modification timestamps should be set", i)
 		}
 	}
 }
