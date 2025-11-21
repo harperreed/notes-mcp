@@ -78,6 +78,9 @@ func runMCPServer(cmd *cobra.Command, args []string) {
 	// Register resources
 	registerResources(server, notesService)
 
+	// Register prompts
+	registerPrompts(server, notesService)
+
 	// Run the server over stdio transport
 	if err := server.Run(context.Background(), &mcp.StdioTransport{}); err != nil {
 		log.Fatalf("MCP server failed: %v", err)
@@ -610,4 +613,411 @@ func createFolderNotesResourceHandler(notesService services.NotesService) mcp.Re
 			},
 		}, nil
 	}
+}
+
+// registerPrompts registers all prompt templates for workflow assistance
+func registerPrompts(server *mcp.Server, notesService services.NotesService) {
+	registerDailyReviewPrompt(server, notesService)
+	registerWeeklySummaryPrompt(server, notesService)
+	registerMeetingPrepPrompt(server, notesService)
+	registerActionItemsPrompt(server, notesService)
+	registerNoteCleanupPrompt(server, notesService)
+	registerQuickNotePrompt(server, notesService)
+}
+
+// registerDailyReviewPrompt registers the daily-review prompt
+func registerDailyReviewPrompt(server *mcp.Server, notesService services.NotesService) {
+	prompt := &mcp.Prompt{
+		Name:        "daily-review",
+		Description: "Review notes from today with summary and action items. Analyzes recent notes to provide a daily overview.",
+		Arguments:   []*mcp.PromptArgument{},
+	}
+
+	handler := func(ctx context.Context, req *mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
+		// Get today's date
+		today := time.Now().Format("2006-01-02")
+
+		instructions := fmt.Sprintf(`Review my notes from today (%s) and provide:
+
+1. A brief summary of key topics and themes
+2. Action items extracted from the notes
+3. Any follow-up tasks or decisions that need attention
+4. Patterns or insights from today's work
+
+Use the notes:///recent resource to access recent notes. Focus on notes created or modified today.`, today)
+
+		return &mcp.GetPromptResult{
+			Description: "Daily review prompt with instructions for summarizing today's notes",
+			Messages: []*mcp.PromptMessage{
+				{
+					Role: "user",
+					Content: &mcp.TextContent{
+						Text: instructions,
+					},
+				},
+			},
+		}, nil
+	}
+
+	server.AddPrompt(prompt, handler)
+}
+
+// registerWeeklySummaryPrompt registers the weekly-summary prompt
+func registerWeeklySummaryPrompt(server *mcp.Server, notesService services.NotesService) {
+	prompt := &mcp.Prompt{
+		Name:        "weekly-summary",
+		Description: "Summarize notes from the past week by category. Provides a high-level overview of weekly activity.",
+		Arguments: []*mcp.PromptArgument{
+			{
+				Name:        "categories",
+				Description: "Optional comma-separated list of categories to focus on (e.g., 'meetings,ideas,todos')",
+				Required:    false,
+			},
+		},
+	}
+
+	handler := func(ctx context.Context, req *mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
+		categories := req.Params.Arguments["categories"]
+
+		var categoryInstructions string
+		if categories != "" {
+			categoryInstructions = fmt.Sprintf("\nFocus on these categories: %s", categories)
+		}
+
+		instructions := fmt.Sprintf(`Review my notes from the past week and provide a comprehensive summary:
+
+1. Group notes by category or theme
+2. Highlight key accomplishments and progress
+3. List outstanding action items and decisions
+4. Identify any recurring themes or patterns
+5. Note any areas that need more attention%s
+
+Use the notes:///recent resource to access recent notes from the past week. Organize the summary by categories to make it easy to review.`, categoryInstructions)
+
+		return &mcp.GetPromptResult{
+			Description: "Weekly summary prompt with instructions for reviewing the past week's notes",
+			Messages: []*mcp.PromptMessage{
+				{
+					Role: "user",
+					Content: &mcp.TextContent{
+						Text: instructions,
+					},
+				},
+			},
+		}, nil
+	}
+
+	server.AddPrompt(prompt, handler)
+}
+
+// registerMeetingPrepPrompt registers the meeting-prep prompt
+func registerMeetingPrepPrompt(server *mcp.Server, notesService services.NotesService) {
+	prompt := &mcp.Prompt{
+		Name:        "meeting-prep",
+		Description: "Prepare for a meeting using relevant notes. Gathers context and talking points for upcoming meetings.",
+		Arguments: []*mcp.PromptArgument{
+			{
+				Name:        "topic",
+				Description: "The meeting topic or project name to search for relevant notes",
+				Required:    true,
+			},
+			{
+				Name:        "attendees",
+				Description: "Optional comma-separated list of attendees to consider when gathering context",
+				Required:    false,
+			},
+		},
+	}
+
+	handler := func(ctx context.Context, req *mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
+		topic := req.Params.Arguments["topic"]
+		attendees := req.Params.Arguments["attendees"]
+
+		var attendeeContext string
+		if attendees != "" {
+			attendeeContext = fmt.Sprintf("\nAttendees: %s", attendees)
+		}
+
+		instructions := fmt.Sprintf(`Prepare me for a meeting about: %s%s
+
+Please provide:
+
+1. Summary of relevant notes and past discussions on this topic
+2. Key points and decisions from previous meetings
+3. Outstanding action items or open questions
+4. Suggested talking points or agenda items
+5. Any background context I should review
+
+Use the notes:///search/%s resource to find relevant notes. Also check notes:///recent for any recent updates related to this topic.`, topic, attendeeContext, topic)
+
+		return &mcp.GetPromptResult{
+			Description: "Meeting preparation prompt with instructions for gathering relevant context",
+			Messages: []*mcp.PromptMessage{
+				{
+					Role: "user",
+					Content: &mcp.TextContent{
+						Text: instructions,
+					},
+				},
+			},
+		}, nil
+	}
+
+	server.AddPrompt(prompt, handler)
+}
+
+// registerActionItemsPrompt registers the action-items prompt
+func registerActionItemsPrompt(server *mcp.Server, notesService services.NotesService) {
+	prompt := &mcp.Prompt{
+		Name:        "action-items",
+		Description: "Extract action items from notes with a specific tag or search term. Consolidates todos and tasks.",
+		Arguments: []*mcp.PromptArgument{
+			{
+				Name:        "search_term",
+				Description: "Tag name or search term to filter notes (e.g., 'TODO', 'action', project name)",
+				Required:    true,
+			},
+			{
+				Name:        "status",
+				Description: "Optional status filter: 'open', 'completed', or 'all' (default: 'open')",
+				Required:    false,
+			},
+		},
+	}
+
+	handler := func(ctx context.Context, req *mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
+		searchTerm := req.Params.Arguments["search_term"]
+		status := req.Params.Arguments["status"]
+		if status == "" {
+			status = "open"
+		}
+
+		instructions := fmt.Sprintf(`Extract and organize action items from notes matching: %s
+
+Please provide:
+
+1. List of all action items, organized by priority or category
+2. For each item, include:
+   - The action description
+   - Source note title
+   - Any deadlines or time constraints mentioned
+   - Current status (%s items only)
+3. Group items by urgency (urgent, soon, later)
+4. Flag any overdue or blocked items
+
+Use the notes:///search/%s resource to find relevant notes. Look for action items, todos, tasks, or similar indicators in the note content.`, searchTerm, status, searchTerm)
+
+		return &mcp.GetPromptResult{
+			Description: "Action items extraction prompt with instructions for finding and organizing tasks",
+			Messages: []*mcp.PromptMessage{
+				{
+					Role: "user",
+					Content: &mcp.TextContent{
+						Text: instructions,
+					},
+				},
+			},
+		}, nil
+	}
+
+	server.AddPrompt(prompt, handler)
+}
+
+// registerNoteCleanupPrompt registers the note-cleanup prompt
+func registerNoteCleanupPrompt(server *mcp.Server, notesService services.NotesService) {
+	prompt := &mcp.Prompt{
+		Name:        "note-cleanup",
+		Description: "Identify notes that should be archived or deleted. Helps maintain a clean and organized notes database.",
+		Arguments: []*mcp.PromptArgument{
+			{
+				Name:        "age_threshold_days",
+				Description: "Optional minimum age in days for notes to consider for cleanup (default: 90)",
+				Required:    false,
+			},
+		},
+	}
+
+	handler := func(ctx context.Context, req *mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
+		ageThreshold := req.Params.Arguments["age_threshold_days"]
+		if ageThreshold == "" {
+			ageThreshold = "90"
+		}
+
+		instructions := fmt.Sprintf(`Review my notes and identify candidates for archival or deletion.
+
+Please analyze notes and suggest:
+
+1. Notes older than %s days that may be outdated
+2. Duplicate or redundant notes
+3. Notes with completed action items that can be archived
+4. Empty or placeholder notes
+5. Notes that should be consolidated or merged
+
+For each suggestion, provide:
+- Note title
+- Reason for archival/deletion
+- Any important content that should be preserved elsewhere
+
+Use the notes:///recent resource to get an overview of notes. Be conservative - only suggest cleanup for notes that are clearly outdated or redundant.`, ageThreshold)
+
+		return &mcp.GetPromptResult{
+			Description: "Note cleanup prompt with instructions for identifying notes to archive or delete",
+			Messages: []*mcp.PromptMessage{
+				{
+					Role: "user",
+					Content: &mcp.TextContent{
+						Text: instructions,
+					},
+				},
+			},
+		}, nil
+	}
+
+	server.AddPrompt(prompt, handler)
+}
+
+// registerQuickNotePrompt registers the quick-note prompt
+func registerQuickNotePrompt(server *mcp.Server, notesService services.NotesService) {
+	prompt := &mcp.Prompt{
+		Name:        "quick-note",
+		Description: "Quick capture template for creating structured notes. Provides a consistent format for new notes.",
+		Arguments: []*mcp.PromptArgument{
+			{
+				Name:        "note_type",
+				Description: "Type of note to create: 'meeting', 'idea', 'todo', 'journal', or 'general'",
+				Required:    true,
+			},
+			{
+				Name:        "title",
+				Description: "Title for the note",
+				Required:    true,
+			},
+		},
+	}
+
+	handler := func(ctx context.Context, req *mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
+		noteType := req.Params.Arguments["note_type"]
+		title := req.Params.Arguments["title"]
+
+		var template string
+		switch noteType {
+		case "meeting":
+			template = `Create a meeting note with the following structure:
+
+Title: %s
+Date: %s
+
+## Attendees
+- [List attendees]
+
+## Agenda
+- [Topics to discuss]
+
+## Discussion
+- [Key points discussed]
+
+## Decisions
+- [Decisions made]
+
+## Action Items
+- [ ] [Task 1]
+- [ ] [Task 2]
+
+## Next Steps
+- [Follow-up items]`
+		case "idea":
+			template = `Create an idea note with the following structure:
+
+Title: %s
+Date: %s
+
+## Overview
+[Brief description of the idea]
+
+## Context
+[Why this idea matters, what problem it solves]
+
+## Details
+[Expanded thoughts and details]
+
+## Next Steps
+- [ ] [What to do next]
+
+## Related Notes
+- [Links to related notes or resources]`
+		case "todo":
+			template = `Create a todo note with the following structure:
+
+Title: %s
+Date: %s
+
+## Tasks
+- [ ] [Task 1]
+- [ ] [Task 2]
+- [ ] [Task 3]
+
+## Priority
+[High/Medium/Low]
+
+## Context
+[Why these tasks matter]
+
+## Deadline
+[Target completion date]`
+		case "journal":
+			template = `Create a journal entry with the following structure:
+
+Title: %s
+Date: %s
+
+## Mood
+[How are you feeling?]
+
+## Accomplishments
+- [What went well today]
+
+## Challenges
+- [What was difficult]
+
+## Learnings
+- [What you learned]
+
+## Tomorrow
+- [What to focus on tomorrow]`
+		default:
+			template = `Create a note with the following structure:
+
+Title: %s
+Date: %s
+
+## Summary
+[Brief overview]
+
+## Details
+[Main content]
+
+## Tags
+[Relevant tags for organization]
+
+## References
+- [Related notes or links]`
+		}
+
+		instructions := fmt.Sprintf("Please create a new note using the create_note tool with this template:\n\n"+template,
+			title, time.Now().Format("2006-01-02"))
+
+		return &mcp.GetPromptResult{
+			Description: "Quick note creation prompt with a structured template",
+			Messages: []*mcp.PromptMessage{
+				{
+					Role: "user",
+					Content: &mcp.TextContent{
+						Text: instructions,
+					},
+				},
+			},
+		}, nil
+	}
+
+	server.AddPrompt(prompt, handler)
 }
