@@ -15,15 +15,16 @@ import (
 
 // mockNotesService is a simple mock for testing tool handlers
 type mockNotesService struct {
-	createNote          func(ctx context.Context, title, content string, tags []string) (*services.Note, error)
-	searchNotes         func(ctx context.Context, query string) ([]services.Note, error)
-	searchNotesAdvanced func(ctx context.Context, opts services.SearchOptions) ([]services.Note, error)
-	getNoteContent      func(ctx context.Context, title string) (string, error)
-	updateNote          func(ctx context.Context, title, content string) error
-	deleteNote          func(ctx context.Context, title string) error
-	listFolders         func(ctx context.Context) ([]string, error)
-	getRecentNotes      func(ctx context.Context, limit int) ([]services.Note, error)
-	getNotesInFolder    func(ctx context.Context, folder string) ([]services.Note, error)
+	createNote           func(ctx context.Context, title, content string, tags []string) (*services.Note, error)
+	searchNotes          func(ctx context.Context, query string) ([]services.Note, error)
+	searchNotesAdvanced  func(ctx context.Context, opts services.SearchOptions) ([]services.Note, error)
+	getNoteContent       func(ctx context.Context, title string) (string, error)
+	updateNote           func(ctx context.Context, title, content string) error
+	deleteNote           func(ctx context.Context, title string) error
+	listFolders          func(ctx context.Context) ([]string, error)
+	getRecentNotes       func(ctx context.Context, limit int) ([]services.Note, error)
+	getNotesInFolder     func(ctx context.Context, folder string) ([]services.Note, error)
+	getAttachmentContent func(ctx context.Context, filePath string, maxSize int64) ([]byte, error)
 }
 
 func (m *mockNotesService) CreateNote(ctx context.Context, title, content string, tags []string) (*services.Note, error) {
@@ -85,6 +86,13 @@ func (m *mockNotesService) GetRecentNotes(ctx context.Context, limit int) ([]ser
 func (m *mockNotesService) GetNotesInFolder(ctx context.Context, folder string) ([]services.Note, error) {
 	if m.getNotesInFolder != nil {
 		return m.getNotesInFolder(ctx, folder)
+	}
+	return nil, errors.New("not implemented")
+}
+
+func (m *mockNotesService) GetAttachmentContent(ctx context.Context, filePath string, maxSize int64) ([]byte, error) {
+	if m.getAttachmentContent != nil {
+		return m.getAttachmentContent(ctx, filePath, maxSize)
 	}
 	return nil, errors.New("not implemented")
 }

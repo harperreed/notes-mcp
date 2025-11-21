@@ -6,6 +6,7 @@ package services
 import (
 	"context"
 	"fmt"
+	"os"
 	"regexp"
 	"strings"
 	"time"
@@ -39,6 +40,9 @@ type NotesService interface {
 
 	// GetNotesInFolder retrieves all notes in a specific folder
 	GetNotesInFolder(ctx context.Context, folder string) ([]Note, error)
+
+	// GetAttachmentContent retrieves the content of an attachment from its file path
+	GetAttachmentContent(ctx context.Context, filePath string, maxSize int64) ([]byte, error)
 }
 
 // Note represents a note entity
@@ -1139,4 +1143,30 @@ func (s *AppleNotesService) buildFilteredBodySearch(safeQuery string, searchIn s
 // AppleScript dates: "Monday, January 1, 2024 at 10:00:00 AM"
 func (s *AppleNotesService) formatAppleScriptDate(t time.Time) string {
 	return t.Format("Monday, January 2, 2006 at 3:04:05 PM")
+}
+
+// GetAttachmentContent retrieves the content of an attachment from its file path
+// The filePath should come from the Attachment.FilePath field returned by GetNoteAttachments
+// maxSize parameter (in bytes) prevents OOM on large files - default should be 10MB (10*1024*1024)
+// Returns error if file exceeds maxSize or cannot be read
+func (s *AppleNotesService) GetAttachmentContent(ctx context.Context, filePath string, maxSize int64) ([]byte, error) {
+	// Get file info to check size before reading
+	fileInfo, err := os.Stat(filePath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read attachment file: %w", err)
+	}
+
+	// Check if file exceeds maxSize limit
+	if fileInfo.Size() > maxSize {
+		return nil, fmt.Errorf("attachment file size (%d bytes) exceeds maximum size (%d bytes)", fileInfo.Size(), maxSize)
+	}
+
+	// Read the file content
+	// nosemgrep: go.lang.security.audit.path-traversal.path-join.path-join-with-user-input
+	content, err := os.ReadFile(filePath) // #nosec G304 - filePath comes from Apple Notes attachment API
+	if err != nil {
+		return nil, fmt.Errorf("failed to read attachment file: %w", err)
+	}
+
+	return content, nil
 }

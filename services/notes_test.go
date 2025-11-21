@@ -6,6 +6,7 @@ package services
 import (
 	"context"
 	"encoding/json"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -1530,4 +1531,145 @@ func TestSearchNotesAdvanced_ExecutorError(t *testing.T) {
 	if len(notes) != 0 {
 		t.Errorf("Expected empty notes on error, got %d", len(notes))
 	}
+}
+
+// TestGetAttachmentContent tests successful retrieval of attachment content
+func TestGetAttachmentContent(t *testing.T) {
+	// Create a temporary file to simulate an attachment
+	tmpFile := t.TempDir() + "/test_attachment.txt"
+	expectedContent := []byte("This is test attachment content")
+	if err := writeTestFile(tmpFile, expectedContent); err != nil {
+		t.Fatalf("Failed to create test file: %v", err)
+	}
+
+	service := NewAppleNotesService(&MockExecutor{})
+	ctx := context.Background()
+
+	content, err := service.GetAttachmentContent(ctx, tmpFile, 10*1024*1024)
+	if err != nil {
+		t.Fatalf("GetAttachmentContent failed: %v", err)
+	}
+
+	if string(content) != string(expectedContent) {
+		t.Errorf("Content = %q, want %q", string(content), string(expectedContent))
+	}
+}
+
+// TestGetAttachmentContentFileNotFound tests error when attachment file doesn't exist
+func TestGetAttachmentContentFileNotFound(t *testing.T) {
+	service := NewAppleNotesService(&MockExecutor{})
+	ctx := context.Background()
+
+	_, err := service.GetAttachmentContent(ctx, "/nonexistent/path/file.txt", 10*1024*1024)
+	if err == nil {
+		t.Fatal("Expected error for non-existent file, got nil")
+	}
+
+	if !strings.Contains(err.Error(), "failed to read attachment file") {
+		t.Errorf("Expected error containing 'failed to read attachment file', got %v", err)
+	}
+}
+
+// TestGetAttachmentContentExceedsMaxSize tests error when file exceeds maxSize limit
+func TestGetAttachmentContentExceedsMaxSize(t *testing.T) {
+	// Create a file larger than the maxSize limit
+	tmpFile := t.TempDir() + "/large_attachment.txt"
+	largeContent := make([]byte, 1024) // 1KB file
+	if err := writeTestFile(tmpFile, largeContent); err != nil {
+		t.Fatalf("Failed to create test file: %v", err)
+	}
+
+	service := NewAppleNotesService(&MockExecutor{})
+	ctx := context.Background()
+
+	// Set maxSize to 512 bytes, which is smaller than the 1KB file
+	_, err := service.GetAttachmentContent(ctx, tmpFile, 512)
+	if err == nil {
+		t.Fatal("Expected error for file exceeding maxSize, got nil")
+	}
+
+	if !strings.Contains(err.Error(), "exceeds maximum size") {
+		t.Errorf("Expected error containing 'exceeds maximum size', got %v", err)
+	}
+}
+
+// TestGetAttachmentContentEmptyFile tests reading an empty file
+func TestGetAttachmentContentEmptyFile(t *testing.T) {
+	tmpFile := t.TempDir() + "/empty_attachment.txt"
+	if err := writeTestFile(tmpFile, []byte{}); err != nil {
+		t.Fatalf("Failed to create test file: %v", err)
+	}
+
+	service := NewAppleNotesService(&MockExecutor{})
+	ctx := context.Background()
+
+	content, err := service.GetAttachmentContent(ctx, tmpFile, 10*1024*1024)
+	if err != nil {
+		t.Fatalf("GetAttachmentContent failed for empty file: %v", err)
+	}
+
+	if len(content) != 0 {
+		t.Errorf("Expected empty content, got %d bytes", len(content))
+	}
+}
+
+// TestGetAttachmentContentBinaryData tests reading binary data (e.g., image)
+func TestGetAttachmentContentBinaryData(t *testing.T) {
+	tmpFile := t.TempDir() + "/binary_attachment.bin"
+	binaryContent := []byte{0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A} // PNG header
+	if err := writeTestFile(tmpFile, binaryContent); err != nil {
+		t.Fatalf("Failed to create test file: %v", err)
+	}
+
+	service := NewAppleNotesService(&MockExecutor{})
+	ctx := context.Background()
+
+	content, err := service.GetAttachmentContent(ctx, tmpFile, 10*1024*1024)
+	if err != nil {
+		t.Fatalf("GetAttachmentContent failed for binary file: %v", err)
+	}
+
+	if !bytesEqual(content, binaryContent) {
+		t.Errorf("Binary content mismatch")
+	}
+}
+
+// TestGetAttachmentContentDefaultMaxSize tests default maxSize parameter
+func TestGetAttachmentContentDefaultMaxSize(t *testing.T) {
+	tmpFile := t.TempDir() + "/test_attachment.txt"
+	expectedContent := []byte("Test content")
+	if err := writeTestFile(tmpFile, expectedContent); err != nil {
+		t.Fatalf("Failed to create test file: %v", err)
+	}
+
+	service := NewAppleNotesService(&MockExecutor{})
+	ctx := context.Background()
+
+	// Call with 10MB default maxSize (standard default from design)
+	content, err := service.GetAttachmentContent(ctx, tmpFile, 10*1024*1024)
+	if err != nil {
+		t.Fatalf("GetAttachmentContent failed: %v", err)
+	}
+
+	if string(content) != string(expectedContent) {
+		t.Errorf("Content = %q, want %q", string(content), string(expectedContent))
+	}
+}
+
+// Helper function to write test files
+func writeTestFile(path string, content []byte) error {
+	return os.WriteFile(path, content, 0644)
+}
+
+// Helper function to compare byte slices
+func bytesEqual(a, b []byte) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }
