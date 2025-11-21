@@ -7,6 +7,7 @@ A standalone Go implementation of an MCP (Model Context Protocol) server for App
 - **MCP Server Mode**: Integrates with Claude Desktop and other MCP clients
   - **6 Tools**: create_note, search_notes, get_note_content, update_note, delete_note, list_folders
   - **4 Resource Types**: Direct access to notes via URIs (note:///, notes:///recent, notes:///search/{query}, notes:///folder/{folder})
+  - **6 Prompt Templates**: One-click workflows for common note operations (daily-review, weekly-summary, meeting-prep, action-items, note-cleanup, quick-note)
 - **CLI Tool Mode**: Command-line interface for managing Apple Notes
 - **Three-Layer Architecture**: Clean separation between protocol, business logic, and OS interaction
 - **Configurable Timeouts**: Environment variable support for large Notes databases
@@ -102,6 +103,19 @@ The server exposes notes as resources for direct access:
 - **`notes:///folder/{folder}`** - List notes in a specific folder (e.g., `notes:///folder/Work`)
 
 Resources allow Claude to read note content directly without tool calls, making it more natural to say things like "based on my meeting notes..."
+
+### MCP Prompts
+
+The server provides six pre-built prompt templates for common workflows:
+
+1. **daily-review** - Review today's notes with summary and action items
+2. **weekly-summary** - Comprehensive weekly summary by category (optional: `categories`)
+3. **meeting-prep** - Prepare for meetings using relevant notes (required: `topic`, optional: `attendees`)
+4. **action-items** - Extract and organize action items (required: `search_term`, optional: `status`)
+5. **note-cleanup** - Identify notes for archival or deletion (optional: `age_threshold_days`)
+6. **quick-note** - Structured templates for rapid note capture (required: `note_type`, `title`)
+
+Prompts are user-triggered and provide Claude with structured instructions for common note operations. They appear in your MCP client's prompt menu for one-click access.
 
 ## Development
 
