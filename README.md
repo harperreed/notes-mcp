@@ -21,6 +21,15 @@ A standalone Go implementation of an MCP (Model Context Protocol) server for App
 
 ## Installation
 
+### Using Make (Recommended)
+
+```bash
+make build        # Build the binary
+make install      # Install to /usr/local/bin
+```
+
+### Using Go directly
+
 ```bash
 go build -o mcp-apple-notes-go .
 ```
@@ -119,14 +128,40 @@ Prompts are user-triggered and provide Claude with structured instructions for c
 
 ## Development
 
+### Quick Start with Make
+
+```bash
+make help         # Show all available commands
+make build        # Build the binary
+make test         # Run unit tests
+make lint         # Run linter
+make check        # Run format, lint, and test
+make run          # Build and start MCP server
+make clean        # Remove build artifacts
+```
+
 ### Run Tests
 
 ```bash
-# Unit tests only
-go test ./...
+# Using Make
+make test                  # Unit tests only
+make test-integration      # Integration tests (requires Apple Notes)
+make test-all             # All tests
+make test-coverage        # Generate coverage report
 
-# Include integration tests (requires Apple Notes running)
+# Using Go directly
+go test ./...
 go test -tags=integration ./...
+```
+
+### Development Workflow
+
+```bash
+make format       # Format code
+make lint         # Run linter
+make lint-fix     # Auto-fix linting issues
+make check        # Full check (format + lint + test)
+make pre-commit   # Run all pre-commit hooks
 ```
 
 ### Project Structure
