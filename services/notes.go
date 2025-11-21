@@ -171,10 +171,20 @@ func (s *AppleNotesService) SearchNotes(ctx context.Context, query string) ([]No
 	safeQuery := s.escapeForAppleScript(query)
 
 	// Generate AppleScript to search notes
+	// Use custom delimiter to avoid issues with note titles containing commas
 	script := fmt.Sprintf(`
 		tell application "Notes"
 			tell account "%s"
-				get name of notes where name contains "%s"
+				set noteList to {}
+				set foundNotes to notes where name contains "%s"
+				repeat with n in foundNotes
+					set end of noteList to name of n
+				end repeat
+				set oldDelimiters to AppleScript's text item delimiters
+				set AppleScript's text item delimiters to "|||"
+				set result to noteList as string
+				set AppleScript's text item delimiters to oldDelimiters
+				return result
 			end tell
 		end tell
 	`, s.iCloudAccount, safeQuery)
@@ -193,8 +203,8 @@ func (s *AppleNotesService) SearchNotes(ctx context.Context, query string) ([]No
 		return []Note{}, nil
 	}
 
-	// Parse CSV output (AppleScript returns comma-separated list)
-	titles := strings.Split(stdout, ", ")
+	// Parse delimiter-separated output
+	titles := strings.Split(stdout, "|||")
 	notes := make([]Note, 0, len(titles))
 	now := time.Now()
 
@@ -301,10 +311,20 @@ func (s *AppleNotesService) DeleteNote(ctx context.Context, title string) error 
 // ListFolders lists all folders in Apple Notes
 func (s *AppleNotesService) ListFolders(ctx context.Context) ([]string, error) {
 	// Generate AppleScript to list folders
+	// Use custom delimiter to avoid issues with folder names containing commas
 	script := fmt.Sprintf(`
 		tell application "Notes"
 			tell account "%s"
-				get name of folders
+				set folderList to {}
+				set allFolders to folders
+				repeat with f in allFolders
+					set end of folderList to name of f
+				end repeat
+				set oldDelimiters to AppleScript's text item delimiters
+				set AppleScript's text item delimiters to "|||"
+				set result to folderList as string
+				set AppleScript's text item delimiters to oldDelimiters
+				return result
 			end tell
 		end tell
 	`, s.iCloudAccount)
@@ -323,8 +343,8 @@ func (s *AppleNotesService) ListFolders(ctx context.Context) ([]string, error) {
 		return []string{}, nil
 	}
 
-	// Parse CSV output (AppleScript returns comma-separated list)
-	folders := strings.Split(stdout, ", ")
+	// Parse delimiter-separated output
+	folders := strings.Split(stdout, "|||")
 	result := make([]string, 0, len(folders))
 
 	for _, folder := range folders {
@@ -861,14 +881,15 @@ func (s *AppleNotesService) buildSearchScript(searchIn string, opts SearchOption
 	}
 }
 
-// parseSearchResults parses CSV output from AppleScript into Note slice
+// parseSearchResults parses delimiter-separated output from AppleScript into Note slice
+// Uses "|||" delimiter to avoid issues with note titles containing commas
 func (s *AppleNotesService) parseSearchResults(stdout string) []Note {
 	stdout = strings.TrimSpace(stdout)
 	if stdout == "" {
 		return []Note{}
 	}
 
-	titles := strings.Split(stdout, ", ")
+	titles := strings.Split(stdout, "|||")
 	notes := make([]Note, 0, len(titles))
 	now := time.Now()
 
@@ -902,10 +923,20 @@ func (s *AppleNotesService) parseSearchResults(stdout string) []Note {
 func (s *AppleNotesService) buildTitleSearch(safeQuery string, opts SearchOptions) string {
 	if opts.Folder == "" && opts.DateFrom == nil && opts.DateTo == nil {
 		// Simple title search (fast path)
+		// Use custom delimiter to avoid issues with note titles containing commas
 		return fmt.Sprintf(`
 			tell application "Notes"
 				tell account "%s"
-					get name of notes where name contains "%s"
+					set output to {}
+					set foundNotes to notes where name contains "%s"
+					repeat with n in foundNotes
+						set end of output to name of n
+					end repeat
+					set oldDelimiters to AppleScript's text item delimiters
+					set AppleScript's text item delimiters to "|||"
+					set result to output as string
+					set AppleScript's text item delimiters to oldDelimiters
+					return result
 				end tell
 			end tell
 		`, s.iCloudAccount, safeQuery)
@@ -932,6 +963,8 @@ func (s *AppleNotesService) buildTitleSearch(safeQuery string, opts SearchOption
 	}
 
 	// Apply date filters if present
+	// Date filtering creates an inclusive range: notes modified >= DateFrom AND <= DateTo
+	// Implementation: skip notes outside the range (< DateFrom or > DateTo)
 	if opts.DateFrom != nil || opts.DateTo != nil {
 		script += `
 				repeat with n in candidateNotes
@@ -955,14 +988,22 @@ func (s *AppleNotesService) buildTitleSearch(safeQuery string, opts SearchOption
 		script += `
 					copy name of n to end of matchedNotes
 				end repeat
-				return matchedNotes
+				set oldDelimiters to AppleScript's text item delimiters
+				set AppleScript's text item delimiters to "|||"
+				set result to matchedNotes as string
+				set AppleScript's text item delimiters to oldDelimiters
+				return result
 		`
 	} else {
 		script += `
 				repeat with n in candidateNotes
 					copy name of n to end of matchedNotes
 				end repeat
-				return matchedNotes
+				set oldDelimiters to AppleScript's text item delimiters
+				set AppleScript's text item delimiters to "|||"
+				set result to matchedNotes as string
+				set AppleScript's text item delimiters to oldDelimiters
+				return result
 		`
 	}
 
@@ -986,7 +1027,11 @@ func (s *AppleNotesService) buildBodySearch(safeQuery string, opts SearchOptions
 						copy name of n to end of matchedNotes
 					end if
 				end repeat
-				return matchedNotes
+				set oldDelimiters to AppleScript's text item delimiters
+				set AppleScript's text item delimiters to "|||"
+				set result to matchedNotes as string
+				set AppleScript's text item delimiters to oldDelimiters
+				return result
 			end tell
 		end tell
 	`, s.iCloudAccount, safeQuery)
@@ -1004,7 +1049,11 @@ func (s *AppleNotesService) buildBothSearch(safeQuery string, opts SearchOptions
 						copy name of n to end of matchedNotes
 					end if
 				end repeat
-				return matchedNotes
+				set oldDelimiters to AppleScript's text item delimiters
+				set AppleScript's text item delimiters to "|||"
+				set result to matchedNotes as string
+				set AppleScript's text item delimiters to oldDelimiters
+				return result
 			end tell
 		end tell
 	`, s.iCloudAccount, safeQuery, safeQuery)
@@ -1033,6 +1082,8 @@ func (s *AppleNotesService) buildFilteredBodySearch(safeQuery string, searchIn s
 	}
 
 	// Filter by date and search body
+	// Date filtering creates an inclusive range: notes modified >= DateFrom AND <= DateTo
+	// Implementation: skip notes outside the range (< DateFrom or > DateTo)
 	script += `
 				repeat with n in candidateNotes
 	`
@@ -1072,7 +1123,11 @@ func (s *AppleNotesService) buildFilteredBodySearch(safeQuery string, searchIn s
 
 	script += `
 				end repeat
-				return matchedNotes
+				set oldDelimiters to AppleScript's text item delimiters
+				set AppleScript's text item delimiters to "|||"
+				set result to matchedNotes as string
+				set AppleScript's text item delimiters to oldDelimiters
+				return result
 			end tell
 		end tell
 	`

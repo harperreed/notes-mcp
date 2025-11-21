@@ -434,7 +434,7 @@ func TestCreateNoteError(t *testing.T) {
 // TestSearchNotes tests successful note search
 func TestSearchNotes(t *testing.T) {
 	executor := &MockExecutor{
-		stdout: "Meeting Notes, Project Ideas, Random Thoughts",
+		stdout: "Meeting Notes|||Project Ideas|||Random Thoughts",
 		stderr: "",
 		err:    nil,
 	}
@@ -750,7 +750,7 @@ func TestDeleteNoteNotFound(t *testing.T) {
 // TestListFolders tests successful folder listing
 func TestListFolders(t *testing.T) {
 	executor := &MockExecutor{
-		stdout: "Notes, Work, Personal",
+		stdout: "Notes|||Work|||Personal",
 		stderr: "",
 		err:    nil,
 	}
@@ -1178,7 +1178,7 @@ func TestGetNoteAttachmentsNoteNotFound(t *testing.T) {
 // TestSearchNotesAdvanced_TitleOnly tests searching in title only
 func TestSearchNotesAdvanced_TitleOnly(t *testing.T) {
 	executor := &MockExecutor{
-		stdout: "Meeting Notes, Project Ideas",
+		stdout: "Meeting Notes|||Project Ideas",
 		stderr: "",
 		err:    nil,
 	}
@@ -1212,7 +1212,7 @@ func TestSearchNotesAdvanced_TitleOnly(t *testing.T) {
 func TestSearchNotesAdvanced_BodyOnly(t *testing.T) {
 	// Mock returns list of note titles that match body search
 	executor := &MockExecutor{
-		stdout: "Design Doc, Implementation Plan",
+		stdout: "Design Doc|||Implementation Plan",
 		stderr: "",
 		err:    nil,
 	}
@@ -1245,7 +1245,7 @@ func TestSearchNotesAdvanced_BodyOnly(t *testing.T) {
 // TestSearchNotesAdvanced_Both tests searching in both title and body
 func TestSearchNotesAdvanced_Both(t *testing.T) {
 	executor := &MockExecutor{
-		stdout: "Meeting Notes, Design Doc, Project Ideas",
+		stdout: "Meeting Notes|||Design Doc|||Project Ideas",
 		stderr: "",
 		err:    nil,
 	}
@@ -1271,7 +1271,7 @@ func TestSearchNotesAdvanced_Both(t *testing.T) {
 // TestSearchNotesAdvanced_FolderFilter tests filtering by folder
 func TestSearchNotesAdvanced_FolderFilter(t *testing.T) {
 	executor := &MockExecutor{
-		stdout: "Work Note 1, Work Note 2",
+		stdout: "Work Note 1|||Work Note 2",
 		stderr: "",
 		err:    nil,
 	}
@@ -1298,7 +1298,7 @@ func TestSearchNotesAdvanced_FolderFilter(t *testing.T) {
 // TestSearchNotesAdvanced_DateRangeFilter tests filtering by date range
 func TestSearchNotesAdvanced_DateRangeFilter(t *testing.T) {
 	executor := &MockExecutor{
-		stdout: "Recent Note 1, Recent Note 2",
+		stdout: "Recent Note 1|||Recent Note 2",
 		stderr: "",
 		err:    nil,
 	}
@@ -1416,7 +1416,7 @@ func TestSearchNotesAdvanced_InvalidSearchIn(t *testing.T) {
 // TestSearchNotesAdvanced_EmptySearchIn tests default to title search when SearchIn is empty
 func TestSearchNotesAdvanced_EmptySearchIn(t *testing.T) {
 	executor := &MockExecutor{
-		stdout: "Note 1, Note 2",
+		stdout: "Note 1|||Note 2",
 		stderr: "",
 		err:    nil,
 	}
@@ -1436,6 +1436,43 @@ func TestSearchNotesAdvanced_EmptySearchIn(t *testing.T) {
 
 	if len(notes) != 2 {
 		t.Fatalf("Expected 2 notes, got %d", len(notes))
+	}
+}
+
+// TestSearchNotesAdvanced_TitlesWithCommas tests note titles containing commas are parsed correctly
+func TestSearchNotesAdvanced_TitlesWithCommas(t *testing.T) {
+	executor := &MockExecutor{
+		stdout: "Design, Implementation, Testing|||Meeting Notes, Q1 2024|||Budget: Revenue, Expenses, Profit",
+		stderr: "",
+		err:    nil,
+	}
+
+	service := NewAppleNotesService(executor)
+	ctx := context.Background()
+
+	opts := SearchOptions{
+		Query:    "test",
+		SearchIn: "title",
+	}
+
+	notes, err := service.SearchNotesAdvanced(ctx, opts)
+	if err != nil {
+		t.Fatalf("SearchNotesAdvanced failed: %v", err)
+	}
+
+	if len(notes) != 3 {
+		t.Fatalf("Expected 3 notes, got %d", len(notes))
+	}
+
+	expectedTitles := []string{
+		"Design, Implementation, Testing",
+		"Meeting Notes, Q1 2024",
+		"Budget: Revenue, Expenses, Profit",
+	}
+	for i, note := range notes {
+		if note.Title != expectedTitles[i] {
+			t.Errorf("Note %d title = %q, want %q", i, note.Title, expectedTitles[i])
+		}
 	}
 }
 
