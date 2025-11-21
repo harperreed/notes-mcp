@@ -86,7 +86,7 @@ func TestOSAScriptExecutor_Execute_ContextCancellation(t *testing.T) {
 	_, _, err := executor.Execute(ctx, script)
 
 	if err == nil {
-		t.Fatal("expected error due to cancelled context, got nil")
+		t.Fatal("expected error due to canceled context, got nil")
 	}
 
 	if !strings.Contains(err.Error(), "context canceled") {

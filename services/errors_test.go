@@ -172,12 +172,12 @@ func TestDetectErrorWithCancelledContext(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	// Context cancelled should return original error, not timeout
+	// Context canceled should return original error, not timeout
 	err := errors.New("script failed")
 	got := DetectError(ctx, "", err)
 
 	if got.Error() != err.Error() {
-		t.Errorf("DetectError() with cancelled context = %v, want %v", got, err)
+		t.Errorf("DetectError() with canceled context = %v, want %v", got, err)
 	}
 }
 

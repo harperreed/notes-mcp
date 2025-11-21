@@ -15,13 +15,13 @@ import (
 
 // mockNotesService is a simple mock for testing tool handlers
 type mockNotesService struct {
-	createNote      func(ctx context.Context, title, content string, tags []string) (*services.Note, error)
-	searchNotes     func(ctx context.Context, query string) ([]services.Note, error)
-	getNoteContent  func(ctx context.Context, title string) (string, error)
-	updateNote      func(ctx context.Context, title, content string) error
-	deleteNote      func(ctx context.Context, title string) error
-	listFolders     func(ctx context.Context) ([]string, error)
-	getRecentNotes  func(ctx context.Context, limit int) ([]services.Note, error)
+	createNote       func(ctx context.Context, title, content string, tags []string) (*services.Note, error)
+	searchNotes      func(ctx context.Context, query string) ([]services.Note, error)
+	getNoteContent   func(ctx context.Context, title string) (string, error)
+	updateNote       func(ctx context.Context, title, content string) error
+	deleteNote       func(ctx context.Context, title string) error
+	listFolders      func(ctx context.Context) ([]string, error)
+	getRecentNotes   func(ctx context.Context, limit int) ([]services.Note, error)
 	getNotesInFolder func(ctx context.Context, folder string) ([]services.Note, error)
 }
 
@@ -84,45 +84,45 @@ func (m *mockNotesService) GetNotesInFolder(ctx context.Context, folder string) 
 // Test that createErrorResult properly converts service errors to user-friendly messages
 func TestCreateErrorResult(t *testing.T) {
 	tests := []struct {
-		name           string
-		err            error
-		expectedText   string
+		name            string
+		err             error
+		expectedText    string
 		expectedIsError bool
 	}{
 		{
-			name:           "note not found",
-			err:            services.ErrNoteNotFound,
-			expectedText:   "Note not found in Apple Notes. Please check the title and try again.",
+			name:            "note not found",
+			err:             services.ErrNoteNotFound,
+			expectedText:    "Note not found in Apple Notes. Please check the title and try again.",
 			expectedIsError: true,
 		},
 		{
-			name:           "notes app not running",
-			err:            services.ErrNotesAppNotRunning,
-			expectedText:   "Apple Notes app is not running. Please open the Notes app and try again.",
+			name:            "notes app not running",
+			err:             services.ErrNotesAppNotRunning,
+			expectedText:    "Apple Notes app is not running. Please open the Notes app and try again.",
 			expectedIsError: true,
 		},
 		{
-			name:           "permission denied",
-			err:            services.ErrPermissionDenied,
-			expectedText:   "Permission denied to access Notes. Please grant access in System Preferences > Privacy & Security > Automation.",
+			name:            "permission denied",
+			err:             services.ErrPermissionDenied,
+			expectedText:    "Permission denied to access Notes. Please grant access in System Preferences > Privacy & Security > Automation.",
 			expectedIsError: true,
 		},
 		{
-			name:           "script timeout",
-			err:            services.ErrScriptTimeout,
-			expectedText:   "Apple Notes is not responding (timeout after 10 seconds). Please try again.",
+			name:            "script timeout",
+			err:             services.ErrScriptTimeout,
+			expectedText:    "Apple Notes is not responding (timeout after 10 seconds). Please try again.",
 			expectedIsError: true,
 		},
 		{
-			name:           "invalid input",
-			err:            services.ErrInvalidInput,
-			expectedText:   "Invalid input: invalid input parameters",
+			name:            "invalid input",
+			err:             services.ErrInvalidInput,
+			expectedText:    "Invalid input: invalid input parameters",
 			expectedIsError: true,
 		},
 		{
-			name:           "unknown error",
-			err:            errors.New("something went wrong"),
-			expectedText:   "An error occurred: something went wrong",
+			name:            "unknown error",
+			err:             errors.New("something went wrong"),
+			expectedText:    "An error occurred: something went wrong",
 			expectedIsError: true,
 		},
 	}
@@ -480,9 +480,9 @@ func TestDailyReviewPrompt(t *testing.T) {
 // TestWeeklySummaryPrompt tests the weekly-summary prompt handler
 func TestWeeklySummaryPrompt(t *testing.T) {
 	tests := []struct {
-		name              string
-		categories        string
-		expectCategories  bool
+		name             string
+		categories       string
+		expectCategories bool
 	}{
 		{
 			name:             "without categories",
@@ -511,9 +511,9 @@ func TestWeeklySummaryPrompt(t *testing.T) {
 // TestMeetingPrepPrompt tests the meeting-prep prompt handler
 func TestMeetingPrepPrompt(t *testing.T) {
 	tests := []struct {
-		name       string
-		topic      string
-		attendees  string
+		name      string
+		topic     string
+		attendees string
 	}{
 		{
 			name:      "without attendees",
@@ -578,9 +578,9 @@ func TestActionItemsPrompt(t *testing.T) {
 // TestNoteCleanupPrompt tests the note-cleanup prompt handler
 func TestNoteCleanupPrompt(t *testing.T) {
 	tests := []struct {
-		name             string
-		ageThreshold     string
-		expectedDefault  string
+		name            string
+		ageThreshold    string
+		expectedDefault string
 	}{
 		{
 			name:            "with default threshold",

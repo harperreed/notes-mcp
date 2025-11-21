@@ -71,13 +71,13 @@ func (m *AppleNotesManager) runScript(script string) (string, error) {
 
 	// -e flag tells osascript to execute the following string
 	cmd := exec.CommandContext(ctx, "osascript", "-e", script)
-	
+
 	// Capture output
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return "", fmt.Errorf("AppleScript execution failed: %v, output: %s", err, string(output))
 	}
-	
+
 	return strings.TrimSpace(string(output)), nil
 }
 

@@ -43,6 +43,7 @@ var searchCmd = &cobra.Command{
 
 		// Add indicator if results were limited
 		if totalNotes > maxSearchResults {
+			//nolint:errcheck // stderr write failure is non-critical
 			fmt.Fprintf(cmd.ErrOrStderr(), "\n(Showing first %d of %d matching notes)\n", maxSearchResults, totalNotes)
 		}
 
