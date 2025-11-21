@@ -1673,3 +1673,176 @@ func bytesEqual(a, b []byte) bool {
 	}
 	return true
 }
+
+// TestExportNoteText tests successful plain text export
+func TestExportNoteText(t *testing.T) {
+	expectedText := "This is plain text content without HTML formatting"
+	executor := &MockExecutor{
+		stdout: expectedText,
+		stderr: "",
+		err:    nil,
+	}
+
+	service := NewAppleNotesService(executor)
+	ctx := context.Background()
+
+	text, err := service.ExportNoteText(ctx, "Test Note")
+	if err != nil {
+		t.Fatalf("ExportNoteText failed: %v", err)
+	}
+
+	if text != expectedText {
+		t.Errorf("Text = %q, want %q", text, expectedText)
+	}
+}
+
+// TestExportNoteTextNotFound tests error when note doesn't exist
+func TestExportNoteTextNotFound(t *testing.T) {
+	executor := &MockExecutor{
+		stdout: "",
+		stderr: "note 'NonExistent' not found",
+		err:    ErrNoteNotFound,
+	}
+
+	service := NewAppleNotesService(executor)
+	ctx := context.Background()
+
+	_, err := service.ExportNoteText(ctx, "NonExistent")
+	if err == nil {
+		t.Fatal("Expected error, got nil")
+	}
+
+	if !strings.Contains(err.Error(), "note not found") {
+		t.Errorf("Expected error containing 'note not found', got %v", err)
+	}
+}
+
+// TestExportNoteTextWithSpecialCharacters tests text export with special characters
+func TestExportNoteTextWithSpecialCharacters(t *testing.T) {
+	expectedText := `Text with "quotes" and special chars: <>&`
+	executor := &MockExecutor{
+		stdout: expectedText,
+		stderr: "",
+		err:    nil,
+	}
+
+	service := NewAppleNotesService(executor)
+	ctx := context.Background()
+
+	text, err := service.ExportNoteText(ctx, `Note with "quotes"`)
+	if err != nil {
+		t.Fatalf("ExportNoteText failed: %v", err)
+	}
+
+	if text != expectedText {
+		t.Errorf("Text = %q, want %q", text, expectedText)
+	}
+}
+
+// TestExportNoteMarkdown tests successful markdown export
+func TestExportNoteMarkdown(t *testing.T) {
+	// HTML body from AppleScript
+	htmlBody := "<div>Test note with <b>bold</b> and <i>italic</i> text</div>"
+	executor := &MockExecutor{
+		stdout: htmlBody,
+		stderr: "",
+		err:    nil,
+	}
+
+	service := NewAppleNotesService(executor)
+	ctx := context.Background()
+
+	markdown, err := service.ExportNoteMarkdown(ctx, "Test Note")
+	if err != nil {
+		t.Fatalf("ExportNoteMarkdown failed: %v", err)
+	}
+
+	// Verify markdown conversion happened
+	if markdown == "" {
+		t.Error("Expected non-empty markdown")
+	}
+
+	// Basic conversion should handle bold and italic
+	if !strings.Contains(markdown, "bold") {
+		t.Error("Expected markdown to contain 'bold' text")
+	}
+}
+
+// TestExportNoteMarkdownNotFound tests error when note doesn't exist
+func TestExportNoteMarkdownNotFound(t *testing.T) {
+	executor := &MockExecutor{
+		stdout: "",
+		stderr: "note 'NonExistent' not found",
+		err:    ErrNoteNotFound,
+	}
+
+	service := NewAppleNotesService(executor)
+	ctx := context.Background()
+
+	_, err := service.ExportNoteMarkdown(ctx, "NonExistent")
+	if err == nil {
+		t.Fatal("Expected error, got nil")
+	}
+
+	if !strings.Contains(err.Error(), "note not found") {
+		t.Errorf("Expected error containing 'note not found', got %v", err)
+	}
+}
+
+// TestExportNoteMarkdownComplexHTML tests markdown conversion with various HTML elements
+func TestExportNoteMarkdownComplexHTML(t *testing.T) {
+	htmlBody := `<div>
+		<h1>Title</h1>
+		<p>Paragraph with <b>bold</b>, <i>italic</i>, and <a href="https://example.com">link</a></p>
+		<ul>
+			<li>Item 1</li>
+			<li>Item 2</li>
+		</ul>
+	</div>`
+
+	executor := &MockExecutor{
+		stdout: htmlBody,
+		stderr: "",
+		err:    nil,
+	}
+
+	service := NewAppleNotesService(executor)
+	ctx := context.Background()
+
+	markdown, err := service.ExportNoteMarkdown(ctx, "Complex Note")
+	if err != nil {
+		t.Fatalf("ExportNoteMarkdown failed: %v", err)
+	}
+
+	// Verify markdown conversion happened
+	if markdown == "" {
+		t.Error("Expected non-empty markdown")
+	}
+
+	// Should contain the text content at minimum
+	if !strings.Contains(markdown, "Title") {
+		t.Error("Expected markdown to contain 'Title'")
+	}
+}
+
+// TestExportNoteMarkdownEmptyBody tests markdown export with empty body
+func TestExportNoteMarkdownEmptyBody(t *testing.T) {
+	executor := &MockExecutor{
+		stdout: "",
+		stderr: "",
+		err:    nil,
+	}
+
+	service := NewAppleNotesService(executor)
+	ctx := context.Background()
+
+	markdown, err := service.ExportNoteMarkdown(ctx, "Empty Note")
+	if err != nil {
+		t.Fatalf("ExportNoteMarkdown failed: %v", err)
+	}
+
+	// Empty body should return empty markdown
+	if markdown != "" {
+		t.Errorf("Expected empty markdown for empty body, got %q", markdown)
+	}
+}

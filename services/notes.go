@@ -43,6 +43,12 @@ type NotesService interface {
 
 	// GetAttachmentContent retrieves the content of an attachment from its file path
 	GetAttachmentContent(ctx context.Context, filePath string, maxSize int64) ([]byte, error)
+
+	// ExportNoteMarkdown exports a note as markdown by converting HTML body to markdown
+	ExportNoteMarkdown(ctx context.Context, noteTitle string) (string, error)
+
+	// ExportNoteText exports a note as plain text using AppleScript plaintext property
+	ExportNoteText(ctx context.Context, noteTitle string) (string, error)
 }
 
 // Note represents a note entity
@@ -1169,4 +1175,95 @@ func (s *AppleNotesService) GetAttachmentContent(ctx context.Context, filePath s
 	}
 
 	return content, nil
+}
+
+// ExportNoteText exports a note as plain text using AppleScript's plaintext property
+// This is a stateless method that returns the text content without writing to filesystem
+func (s *AppleNotesService) ExportNoteText(ctx context.Context, noteTitle string) (string, error) {
+	safeTitle := s.escapeForAppleScript(noteTitle)
+
+	// Generate AppleScript to get note plaintext
+	// The plaintext property returns text without HTML formatting
+	script := fmt.Sprintf(`
+		tell application "Notes"
+			tell account "%s"
+				get plaintext of note "%s"
+			end tell
+		end tell
+	`, s.iCloudAccount, safeTitle)
+
+	// Execute the script
+	stdout, stderr, err := s.executor.Execute(ctx, script)
+	if err != nil {
+		// Detect and wrap the error
+		detectedErr := DetectError(ctx, stderr, err)
+		return "", fmt.Errorf("failed to export note as text: %w", detectedErr)
+	}
+
+	return stdout, nil
+}
+
+// ExportNoteMarkdown exports a note as markdown by converting HTML body to markdown
+// This is a stateless method that returns the markdown content without writing to filesystem
+// Uses basic HTML to markdown conversion for common elements
+func (s *AppleNotesService) ExportNoteMarkdown(ctx context.Context, noteTitle string) (string, error) {
+	// Get the HTML body content first
+	htmlBody, err := s.GetNoteContent(ctx, noteTitle)
+	if err != nil {
+		return "", fmt.Errorf("failed to export note as markdown: %w", err)
+	}
+
+	// Convert HTML to markdown using basic conversion
+	markdown := s.convertHTMLToMarkdown(htmlBody)
+
+	return markdown, nil
+}
+
+// convertHTMLToMarkdown performs basic HTML to markdown conversion
+// Handles common HTML elements like bold, italic, headings, lists, and links
+func (s *AppleNotesService) convertHTMLToMarkdown(html string) string {
+	if html == "" {
+		return ""
+	}
+
+	result := html
+
+	// Convert headings (h1-h6)
+	result = regexp.MustCompile(`<h1[^>]*>(.*?)</h1>`).ReplaceAllString(result, "# $1\n")
+	result = regexp.MustCompile(`<h2[^>]*>(.*?)</h2>`).ReplaceAllString(result, "## $1\n")
+	result = regexp.MustCompile(`<h3[^>]*>(.*?)</h3>`).ReplaceAllString(result, "### $1\n")
+	result = regexp.MustCompile(`<h4[^>]*>(.*?)</h4>`).ReplaceAllString(result, "#### $1\n")
+	result = regexp.MustCompile(`<h5[^>]*>(.*?)</h5>`).ReplaceAllString(result, "##### $1\n")
+	result = regexp.MustCompile(`<h6[^>]*>(.*?)</h6>`).ReplaceAllString(result, "###### $1\n")
+
+	// Convert bold
+	result = regexp.MustCompile(`<b[^>]*>(.*?)</b>`).ReplaceAllString(result, "**$1**")
+	result = regexp.MustCompile(`<strong[^>]*>(.*?)</strong>`).ReplaceAllString(result, "**$1**")
+
+	// Convert italic
+	result = regexp.MustCompile(`<i[^>]*>(.*?)</i>`).ReplaceAllString(result, "*$1*")
+	result = regexp.MustCompile(`<em[^>]*>(.*?)</em>`).ReplaceAllString(result, "*$1*")
+
+	// Convert links
+	result = regexp.MustCompile(`<a[^>]*href="([^"]*)"[^>]*>(.*?)</a>`).ReplaceAllString(result, "[$2]($1)")
+
+	// Convert list items
+	result = regexp.MustCompile(`<li[^>]*>(.*?)</li>`).ReplaceAllString(result, "- $1\n")
+
+	// Convert line breaks
+	result = regexp.MustCompile(`<br\s*/?>`).ReplaceAllString(result, "\n")
+
+	// Convert paragraphs
+	result = regexp.MustCompile(`<p[^>]*>(.*?)</p>`).ReplaceAllString(result, "$1\n\n")
+
+	// Remove remaining HTML tags (div, ul, ol, etc.)
+	result = regexp.MustCompile(`<[^>]+>`).ReplaceAllString(result, "")
+
+	// Clean up multiple newlines
+	result = regexp.MustCompile(`\n{3,}`).ReplaceAllString(result, "\n\n")
+
+	// Trim leading/trailing whitespace
+	result = strings.TrimSpace(result)
+
+	return result
 }

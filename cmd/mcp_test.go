@@ -25,6 +25,8 @@ type mockNotesService struct {
 	getRecentNotes       func(ctx context.Context, limit int) ([]services.Note, error)
 	getNotesInFolder     func(ctx context.Context, folder string) ([]services.Note, error)
 	getAttachmentContent func(ctx context.Context, filePath string, maxSize int64) ([]byte, error)
+	exportNoteMarkdown   func(ctx context.Context, noteTitle string) (string, error)
+	exportNoteText       func(ctx context.Context, noteTitle string) (string, error)
 }
 
 func (m *mockNotesService) CreateNote(ctx context.Context, title, content string, tags []string) (*services.Note, error) {
@@ -95,6 +97,20 @@ func (m *mockNotesService) GetAttachmentContent(ctx context.Context, filePath st
 		return m.getAttachmentContent(ctx, filePath, maxSize)
 	}
 	return nil, errors.New("not implemented")
+}
+
+func (m *mockNotesService) ExportNoteMarkdown(ctx context.Context, noteTitle string) (string, error) {
+	if m.exportNoteMarkdown != nil {
+		return m.exportNoteMarkdown(ctx, noteTitle)
+	}
+	return "", errors.New("not implemented")
+}
+
+func (m *mockNotesService) ExportNoteText(ctx context.Context, noteTitle string) (string, error) {
+	if m.exportNoteText != nil {
+		return m.exportNoteText(ctx, noteTitle)
+	}
+	return "", errors.New("not implemented")
 }
 
 // Test that createErrorResult properly converts service errors to user-friendly messages
