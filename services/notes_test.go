@@ -389,3 +389,87 @@ func TestNewAppleNotesService(t *testing.T) {
 		t.Error("Executor should not be nil")
 	}
 }
+
+// TestUpdateNote tests successful note update
+func TestUpdateNote(t *testing.T) {
+	executor := &MockExecutor{
+		stdout: "note updated",
+		stderr: "",
+		err:    nil,
+	}
+
+	service := NewAppleNotesService(executor)
+	ctx := context.Background()
+
+	title := "Test Note"
+	content := "Updated content with\nnewlines"
+
+	err := service.UpdateNote(ctx, title, content)
+	if err != nil {
+		t.Fatalf("UpdateNote failed: %v", err)
+	}
+}
+
+// TestUpdateNoteWithSpecialCharacters tests escaping in note update
+func TestUpdateNoteWithSpecialCharacters(t *testing.T) {
+	executor := &MockExecutor{
+		stdout: "note updated",
+		stderr: "",
+		err:    nil,
+	}
+
+	service := NewAppleNotesService(executor)
+	ctx := context.Background()
+
+	title := `Note with "quotes"`
+	content := `Updated content with "quotes" and\nbackslashes`
+
+	err := service.UpdateNote(ctx, title, content)
+	if err != nil {
+		t.Fatalf("UpdateNote failed: %v", err)
+	}
+}
+
+// TestUpdateNoteError tests error handling in note update
+func TestUpdateNoteError(t *testing.T) {
+	executor := &MockExecutor{
+		stdout: "",
+		stderr: "not allowed (-1743)",
+		err:    ErrPermissionDenied,
+	}
+
+	service := NewAppleNotesService(executor)
+	ctx := context.Background()
+
+	err := service.UpdateNote(ctx, "Test", "Content")
+	if err == nil {
+		t.Fatal("Expected error, got nil")
+	}
+
+	// Verify error is detected correctly (unwrap the wrapped error)
+	if !strings.Contains(err.Error(), "permission denied") {
+		t.Errorf("Expected error containing 'permission denied', got %v", err)
+	}
+}
+
+// TestUpdateNoteNotFound tests note not found error during update
+func TestUpdateNoteNotFound(t *testing.T) {
+	executor := &MockExecutor{
+		stdout: "",
+		stderr: "note 'NonExistent' not found",
+		err:    ErrNoteNotFound,
+	}
+
+	service := NewAppleNotesService(executor)
+	ctx := context.Background()
+
+	err := service.UpdateNote(ctx, "NonExistent", "New content")
+	if err == nil {
+		t.Fatal("Expected error, got nil")
+	}
+
+	// Verify error is detected correctly (unwrap the wrapped error)
+	if !strings.Contains(err.Error(), "note not found") {
+		t.Errorf("Expected error containing 'note not found', got %v", err)
+	}
+}

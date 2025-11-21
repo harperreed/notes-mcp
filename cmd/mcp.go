@@ -43,6 +43,11 @@ type GetNoteContentArgs struct {
 	Title string `json:"title" jsonschema:"The title of the note to retrieve"`
 }
 
+type UpdateNoteArgs struct {
+	Title   string `json:"title" jsonschema:"The title of the note to update"`
+	Content string `json:"content" jsonschema:"The new content for the note"`
+}
+
 // runMCPServer starts the MCP server in stdio mode
 func runMCPServer(cmd *cobra.Command, args []string) {
 	// Create the notes service
@@ -58,10 +63,11 @@ func runMCPServer(cmd *cobra.Command, args []string) {
 		nil,
 	)
 
-	// Register the three tools
+	// Register the tools
 	registerCreateNoteTool(server, notesService)
 	registerSearchNotesTool(server, notesService)
 	registerGetNoteContentTool(server, notesService)
+	registerUpdateNoteTool(server, notesService)
 
 	// Run the server over stdio transport
 	if err := server.Run(context.Background(), &mcp.StdioTransport{}); err != nil {
@@ -206,6 +212,45 @@ func registerGetNoteContentTool(server *mcp.Server, notesService services.NotesS
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "get_note_content",
 		Description: "Retrieves the full content of a note from Apple Notes by its title. Returns the raw HTML body of the note.",
+	}, handler)
+}
+
+// registerUpdateNoteTool registers the update_note tool
+func registerUpdateNoteTool(server *mcp.Server, notesService services.NotesService) {
+	handler := func(ctx context.Context, req *mcp.CallToolRequest, input UpdateNoteArgs) (
+		*mcp.CallToolResult, any, error) {
+
+		// Validate required fields
+		if input.Title == "" {
+			return nil, nil, fmt.Errorf("%w: title is required", services.ErrInvalidInput)
+		}
+		if input.Content == "" {
+			return nil, nil, fmt.Errorf("%w: content is required", services.ErrInvalidInput)
+		}
+
+		// Create a context with timeout for the operation
+		opCtx, cancel := context.WithTimeout(ctx, getOperationTimeout())
+		defer cancel()
+
+		// Call the service
+		err := notesService.UpdateNote(opCtx, input.Title, input.Content)
+		if err != nil {
+			return createErrorResult(err), nil, nil
+		}
+
+		// Return success result
+		return &mcp.CallToolResult{
+			Content: []mcp.Content{
+				&mcp.TextContent{
+					Text: fmt.Sprintf("Note updated: %s", input.Title),
+				},
+			},
+		}, nil, nil
+	}
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "update_note",
+		Description: "Updates the content of an existing note in Apple Notes by its title. Returns confirmation of note update.",
 	}, handler)
 }
 

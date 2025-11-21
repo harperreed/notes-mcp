@@ -20,6 +20,9 @@ type NotesService interface {
 
 	// GetNoteContent retrieves the full content of a note by title
 	GetNoteContent(ctx context.Context, title string) (string, error)
+
+	// UpdateNote updates an existing note's content by title
+	UpdateNote(ctx context.Context, title, content string) error
 }
 
 // Note represents a note entity
@@ -181,4 +184,33 @@ func (s *AppleNotesService) GetNoteContent(ctx context.Context, title string) (s
 	}
 
 	return stdout, nil
+}
+
+// UpdateNote updates the content of an existing note by its title
+func (s *AppleNotesService) UpdateNote(ctx context.Context, title, content string) error {
+	// Format content and escape title
+	formattedContent := s.formatContent(content)
+	safeTitle := s.escapeForAppleScript(title)
+
+	// Generate AppleScript to update note
+	script := fmt.Sprintf(`
+		tell application "Notes"
+			tell account "%s"
+				set body of note "%s" to "%s"
+			end tell
+		end tell
+	`, s.iCloudAccount, safeTitle, formattedContent)
+
+	// Execute the script
+	stdout, stderr, err := s.executor.Execute(ctx, script)
+	if err != nil {
+		// Detect and wrap the error appropriately
+		detectedErr := DetectError(ctx, stderr, err)
+		return fmt.Errorf("failed to update note: %w", detectedErr)
+	}
+
+	// Log success (stdout might contain confirmation)
+	_ = stdout
+
+	return nil
 }
