@@ -1,5 +1,5 @@
 // ABOUTME: MCP server subcommand that starts the Model Context Protocol server
-// ABOUTME: Implements stdio-based MCP server with three tools: create_note, search_notes, get_note_content
+// ABOUTME: Implements stdio-based MCP server with four tools: create_note, search_notes, get_note_content, update_note
 
 package cmd
 

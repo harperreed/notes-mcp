@@ -44,6 +44,9 @@ Use as a command-line tool:
 
 # Get note content
 ./mcp-apple-notes-go get "Meeting Notes"
+
+# Update a note
+./mcp-apple-notes-go update "Meeting Notes" "Updated Q4 roadmap with new timeline"
 ```
 
 ## Claude Desktop Integration
@@ -92,7 +95,8 @@ notes-mcp/
 │   ├── mcp.go                # MCP server subcommand
 │   ├── create.go             # create note subcommand
 │   ├── search.go             # search notes subcommand
-│   └── get.go                # get note content subcommand
+│   ├── get.go                # get note content subcommand
+│   └── update.go             # update note subcommand
 ├── services/                  # Business logic layer
 │   ├── notes.go              # NotesService interface & implementation
 │   ├── notes_test.go         # Unit tests with mock executor
