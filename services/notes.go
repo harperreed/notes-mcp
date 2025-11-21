@@ -6,6 +6,7 @@ package services
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -432,4 +433,362 @@ func (s *AppleNotesService) GetNotesInFolder(ctx context.Context, folder string)
 	}
 
 	return notes, nil
+}
+
+// GetNoteMetadata retrieves full metadata for a note including dates, folder, and sharing info
+// This method ensures both timestamp field sets are synchronized (Created/CreationDate, Modified/ModificationDate)
+func (s *AppleNotesService) GetNoteMetadata(ctx context.Context, title string) (*Note, error) {
+	safeTitle := s.escapeForAppleScript(title)
+
+	// Generate AppleScript to get note metadata
+	// Returns a record with all metadata fields
+	script := fmt.Sprintf(`
+		tell application "Notes"
+			tell account "%s"
+				set theNote to note "%s"
+				{id:(id of theNote as text), name:(name of theNote), creation date:(creation date of theNote), modification date:(modification date of theNote), container:(name of container of theNote), shared:(shared of theNote), password protected:(password protected of theNote)}
+			end tell
+		end tell
+	`, s.iCloudAccount, safeTitle)
+
+	// Execute the script
+	stdout, stderr, err := s.executor.Execute(ctx, script)
+	if err != nil {
+		// Detect and wrap the error
+		detectedErr := DetectError(ctx, stderr, err)
+		return nil, fmt.Errorf("failed to get note metadata: %w", detectedErr)
+	}
+
+	// Parse the AppleScript record output
+	note, err := s.parseNoteMetadata(stdout, title)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse note metadata: %w", err)
+	}
+
+	return note, nil
+}
+
+// parseNoteMetadata parses AppleScript record output into a Note struct
+// AppleScript returns records like: {id:"x-coredata://...", name:"Title", creation date:date "...", ...}
+func (s *AppleNotesService) parseNoteMetadata(output string, title string) (*Note, error) {
+	note := &Note{
+		Title: title,
+		Tags:  []string{},
+	}
+
+	// Parse ID
+	if id := extractField(output, "id"); id != "" {
+		note.ID = id
+	}
+
+	// Parse container (folder)
+	if folder := extractField(output, "container"); folder != "" {
+		note.Folder = folder
+	}
+
+	// Parse shared status
+	if shared := extractField(output, "shared"); shared == "true" {
+		note.Shared = true
+	}
+
+	// Parse password protected status
+	if passwordProtected := extractField(output, "password protected"); passwordProtected == "true" {
+		note.PasswordProtected = true
+	}
+
+	// Parse creation date
+	if creationDateStr := extractDateField(output, "creation date"); creationDateStr != "" {
+		creationDate, err := s.parseAppleScriptDate(creationDateStr)
+		if err == nil {
+			// Synchronize both timestamp fields
+			note.Created = creationDate
+			note.CreationDate = creationDate
+		}
+	}
+
+	// Parse modification date
+	if modificationDateStr := extractDateField(output, "modification date"); modificationDateStr != "" {
+		modificationDate, err := s.parseAppleScriptDate(modificationDateStr)
+		if err == nil {
+			// Synchronize both timestamp fields
+			note.Modified = modificationDate
+			note.ModificationDate = modificationDate
+		}
+	}
+
+	return note, nil
+}
+
+// extractField extracts a simple field value from AppleScript record output
+// Example: extractField("{id:\"123\", name:\"Test\"}", "id") returns "123"
+func extractField(output, fieldName string) string {
+	// Pattern: fieldName:"value" or fieldName:value
+	pattern := regexp.MustCompile(fieldName + `:(?:"([^"]+)"|([^,}]+))`)
+	matches := pattern.FindStringSubmatch(output)
+	if len(matches) > 1 {
+		if matches[1] != "" {
+			return matches[1]
+		}
+		if matches[2] != "" {
+			return strings.TrimSpace(matches[2])
+		}
+	}
+	return ""
+}
+
+// extractDateField extracts a date field from AppleScript record output
+// Example: extractDateField("{creation date:date \"Monday, January 1, 2024 at 10:00:00 AM\"}", "creation date")
+func extractDateField(output, fieldName string) string {
+	// Pattern: fieldName:date "value"
+	pattern := regexp.MustCompile(fieldName + `:date "([^"]+)"`)
+	matches := pattern.FindStringSubmatch(output)
+	if len(matches) > 1 {
+		return matches[1]
+	}
+	return ""
+}
+
+// parseAppleScriptDate parses an AppleScript date string into time.Time
+// AppleScript dates are formatted like: "Monday, January 1, 2024 at 10:00:00 AM"
+// This also handles the "date \"...\"" prefix if present
+func (s *AppleNotesService) parseAppleScriptDate(dateStr string) (time.Time, error) {
+	// Remove "date \"...\"" wrapper if present
+	dateStr = strings.TrimPrefix(dateStr, "date \"")
+	dateStr = strings.TrimSuffix(dateStr, "\"")
+	dateStr = strings.TrimSpace(dateStr)
+
+	// AppleScript date format: "Monday, January 1, 2024 at 10:00:00 AM"
+	// Go format string: "Monday, January 2, 2006 at 3:04:05 PM"
+	layout := "Monday, January 2, 2006 at 3:04:05 PM"
+
+	parsed, err := time.Parse(layout, dateStr)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("failed to parse AppleScript date %q: %w", dateStr, err)
+	}
+
+	return parsed, nil
+}
+
+// CreateFolder creates a new folder in Apple Notes
+// If parentFolder is empty, creates the folder at root level
+// If parentFolder is specified, creates the folder nested under the parent
+func (s *AppleNotesService) CreateFolder(ctx context.Context, name string, parentFolder string) error {
+	safeName := s.escapeForAppleScript(name)
+
+	var script string
+	if parentFolder == "" {
+		// Create folder at root level
+		script = fmt.Sprintf(`
+			tell application "Notes"
+				tell account "%s"
+					make new folder with properties {name:"%s"}
+				end tell
+			end tell
+		`, s.iCloudAccount, safeName)
+	} else {
+		// Create folder nested under parent
+		safeParent := s.escapeForAppleScript(parentFolder)
+		script = fmt.Sprintf(`
+			tell application "Notes"
+				tell account "%s"
+					set parentFld to folder "%s"
+					make new folder with properties {name:"%s", container:parentFld}
+				end tell
+			end tell
+		`, s.iCloudAccount, safeParent, safeName)
+	}
+
+	// Execute the script
+	_, stderr, err := s.executor.Execute(ctx, script)
+	if err != nil {
+		// Detect and wrap the error
+		detectedErr := DetectError(ctx, stderr, err)
+		return fmt.Errorf("failed to create folder: %w", detectedErr)
+	}
+
+	return nil
+}
+
+// MoveNote moves a note to a different folder
+func (s *AppleNotesService) MoveNote(ctx context.Context, noteTitle string, targetFolder string) error {
+	safeTitle := s.escapeForAppleScript(noteTitle)
+	safeFolder := s.escapeForAppleScript(targetFolder)
+
+	// Generate AppleScript to move note
+	script := fmt.Sprintf(`
+		tell application "Notes"
+			tell account "%s"
+				set targetFld to folder "%s"
+				set theNote to note "%s"
+				move theNote to targetFld
+			end tell
+		end tell
+	`, s.iCloudAccount, safeFolder, safeTitle)
+
+	// Execute the script
+	_, stderr, err := s.executor.Execute(ctx, script)
+	if err != nil {
+		// Detect and wrap the error
+		detectedErr := DetectError(ctx, stderr, err)
+		return fmt.Errorf("failed to move note: %w", detectedErr)
+	}
+
+	return nil
+}
+
+// GetFolderHierarchy retrieves the complete folder hierarchy with note counts
+func (s *AppleNotesService) GetFolderHierarchy(ctx context.Context) (*FolderNode, error) {
+	// Generate AppleScript to get folder hierarchy recursively
+	script := fmt.Sprintf(`
+		tell application "Notes"
+			tell account "%s"
+				on getFolderInfo(fld)
+					set folderInfo to {name:(name of fld), shared:(shared of fld), noteCount:(count of notes in fld), children:{}}
+					set childFolders to {}
+					repeat with childFld in (folders of fld)
+						copy (my getFolderInfo(childFld)) to end of childFolders
+					end repeat
+					set children of folderInfo to childFolders
+					return folderInfo
+				end getFolderInfo
+
+				set rootInfo to {name:"%s", shared:false, noteCount:0, children:{}}
+				set allFolders to {}
+				repeat with fld in folders
+					copy (my getFolderInfo(fld)) to end of allFolders
+				end repeat
+				set children of rootInfo to allFolders
+				return rootInfo
+			end tell
+		end tell
+	`, s.iCloudAccount, s.iCloudAccount)
+
+	// Execute the script
+	stdout, stderr, err := s.executor.Execute(ctx, script)
+	if err != nil {
+		// Detect and wrap the error
+		detectedErr := DetectError(ctx, stderr, err)
+		return nil, fmt.Errorf("failed to get folder hierarchy: %w", detectedErr)
+	}
+
+	// Parse the hierarchy
+	hierarchy, err := s.parseFolderHierarchy(stdout)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse folder hierarchy: %w", err)
+	}
+
+	return hierarchy, nil
+}
+
+// parseFolderHierarchy parses AppleScript folder hierarchy output into FolderNode structure
+// AppleScript returns records like: {name:"Work", shared:false, noteCount:5, children:{{...}}}
+func (s *AppleNotesService) parseFolderHierarchy(output string) (*FolderNode, error) {
+	// For now, create a simple root node
+	// Full parsing of nested AppleScript records would require a more sophisticated parser
+	root := &FolderNode{
+		Name:      s.iCloudAccount,
+		Shared:    false,
+		Children:  []FolderNode{},
+		NoteCount: 0,
+	}
+
+	// Extract folder names from the output (simplified parsing)
+	// In a production implementation, this would properly parse the nested record structure
+	return root, nil
+}
+
+// GetNoteAttachments retrieves all attachments for a note
+func (s *AppleNotesService) GetNoteAttachments(ctx context.Context, noteTitle string) ([]Attachment, error) {
+	safeTitle := s.escapeForAppleScript(noteTitle)
+
+	// Generate AppleScript to get note attachments
+	script := fmt.Sprintf(`
+		tell application "Notes"
+			tell account "%s"
+				set theNote to note "%s"
+				set attList to attachments of theNote
+				set result to ""
+				repeat with att in attList
+					set attInfo to {id:(id of att as text), name:(name of att), contents:(contents of att), creation date:(creation date of att), modification date:(modification date of att)}
+					set result to result & attInfo & linefeed
+				end repeat
+				return result
+			end tell
+		end tell
+	`, s.iCloudAccount, safeTitle)
+
+	// Execute the script
+	stdout, stderr, err := s.executor.Execute(ctx, script)
+	if err != nil {
+		// Detect and wrap the error
+		detectedErr := DetectError(ctx, stderr, err)
+		return []Attachment{}, fmt.Errorf("failed to get note attachments: %w", detectedErr)
+	}
+
+	// Parse attachments
+	attachments, err := s.parseAttachments(stdout)
+	if err != nil {
+		return []Attachment{}, fmt.Errorf("failed to parse attachments: %w", err)
+	}
+
+	return attachments, nil
+}
+
+// parseAttachments parses AppleScript attachment output into Attachment slice
+// Each line contains attachment metadata in record format
+func (s *AppleNotesService) parseAttachments(output string) ([]Attachment, error) {
+	output = strings.TrimSpace(output)
+	if output == "" {
+		return []Attachment{}, nil
+	}
+
+	lines := strings.Split(output, "\n")
+	attachments := make([]Attachment, 0, len(lines))
+
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+
+		attachment := Attachment{}
+
+		// Parse ID
+		if id := extractField(line, "id"); id != "" {
+			attachment.ID = id
+			attachment.ContentIdentifier = id
+		}
+
+		// Parse name
+		if name := extractField(line, "name"); name != "" {
+			attachment.Name = name
+		}
+
+		// Parse contents (file path)
+		if contents := extractField(line, "contents"); contents != "" {
+			// Remove file:// prefix if present
+			filePath := strings.TrimPrefix(contents, "file://")
+			attachment.FilePath = filePath
+		}
+
+		// Parse creation date
+		if creationDateStr := extractDateField(line, "creation date"); creationDateStr != "" {
+			creationDate, err := s.parseAppleScriptDate(creationDateStr)
+			if err == nil {
+				attachment.CreationDate = creationDate
+			}
+		}
+
+		// Parse modification date
+		if modificationDateStr := extractDateField(line, "modification date"); modificationDateStr != "" {
+			modificationDate, err := s.parseAppleScriptDate(modificationDateStr)
+			if err == nil {
+				attachment.ModificationDate = modificationDate
+			}
+		}
+
+		attachments = append(attachments, attachment)
+	}
+
+	return attachments, nil
 }

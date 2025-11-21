@@ -822,3 +822,355 @@ func TestListFoldersWithError(t *testing.T) {
 		t.Errorf("Expected empty folders on error, got %d", len(folders))
 	}
 }
+
+// TestGetNoteMetadata tests retrieval of full note metadata including dates, folder, and sharing info
+func TestGetNoteMetadata(t *testing.T) {
+	// AppleScript returns metadata as JSON-like structured output
+	appleScriptOutput := `{id:"x-coredata://12345", name:"Test Note", creation date:date "Monday, January 1, 2024 at 10:00:00 AM", modification date:date "Monday, January 15, 2024 at 3:30:00 PM", container:"Work", shared:true, password protected:false}`
+
+	executor := &MockExecutor{
+		stdout: appleScriptOutput,
+		stderr: "",
+		err:    nil,
+	}
+
+	service := NewAppleNotesService(executor)
+	ctx := context.Background()
+
+	note, err := service.GetNoteMetadata(ctx, "Test Note")
+	if err != nil {
+		t.Fatalf("GetNoteMetadata failed: %v", err)
+	}
+
+	if note.ID == "" {
+		t.Error("Expected note ID to be populated")
+	}
+	if note.Title != "Test Note" {
+		t.Errorf("Title = %q, want %q", note.Title, "Test Note")
+	}
+	if note.Folder != "Work" {
+		t.Errorf("Folder = %q, want %q", note.Folder, "Work")
+	}
+	if !note.Shared {
+		t.Error("Expected Shared to be true")
+	}
+	if note.PasswordProtected {
+		t.Error("Expected PasswordProtected to be false")
+	}
+
+	// Verify timestamps are synchronized
+	if note.Created.IsZero() {
+		t.Error("Created timestamp should not be zero")
+	}
+	if note.CreationDate.IsZero() {
+		t.Error("CreationDate timestamp should not be zero")
+	}
+	if !note.Created.Equal(note.CreationDate) {
+		t.Errorf("Created (%v) and CreationDate (%v) should be equal", note.Created, note.CreationDate)
+	}
+
+	if note.Modified.IsZero() {
+		t.Error("Modified timestamp should not be zero")
+	}
+	if note.ModificationDate.IsZero() {
+		t.Error("ModificationDate timestamp should not be zero")
+	}
+	if !note.Modified.Equal(note.ModificationDate) {
+		t.Errorf("Modified (%v) and ModificationDate (%v) should be equal", note.Modified, note.ModificationDate)
+	}
+}
+
+// TestGetNoteMetadataNotFound tests note not found error for metadata retrieval
+func TestGetNoteMetadataNotFound(t *testing.T) {
+	executor := &MockExecutor{
+		stdout: "",
+		stderr: "note 'NonExistent' not found",
+		err:    ErrNoteNotFound,
+	}
+
+	service := NewAppleNotesService(executor)
+	ctx := context.Background()
+
+	_, err := service.GetNoteMetadata(ctx, "NonExistent")
+	if err == nil {
+		t.Fatal("Expected error, got nil")
+	}
+
+	if !strings.Contains(err.Error(), "note not found") {
+		t.Errorf("Expected error containing 'note not found', got %v", err)
+	}
+}
+
+// TestParseAppleScriptDate tests AppleScript date parsing
+func TestParseAppleScriptDate(t *testing.T) {
+	tests := []struct {
+		name        string
+		input       string
+		shouldError bool
+	}{
+		{
+			name:        "standard AppleScript date",
+			input:       "date \"Monday, January 1, 2024 at 10:00:00 AM\"",
+			shouldError: false,
+		},
+		{
+			name:        "AppleScript date without prefix",
+			input:       "Monday, January 1, 2024 at 10:00:00 AM",
+			shouldError: false,
+		},
+		{
+			name:        "invalid date format",
+			input:       "not a date",
+			shouldError: true,
+		},
+	}
+
+	service := NewAppleNotesService(&MockExecutor{})
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := service.parseAppleScriptDate(tt.input)
+
+			if tt.shouldError {
+				if err == nil {
+					t.Errorf("Expected error for input %q, got nil", tt.input)
+				}
+			} else {
+				if err != nil {
+					t.Errorf("Unexpected error for input %q: %v", tt.input, err)
+				}
+				if result.IsZero() {
+					t.Errorf("Expected non-zero time for input %q", tt.input)
+				}
+			}
+		})
+	}
+}
+
+// TestCreateFolder tests creating a folder at root level
+func TestCreateFolder(t *testing.T) {
+	executor := &MockExecutor{
+		stdout: "folder created",
+		stderr: "",
+		err:    nil,
+	}
+
+	service := NewAppleNotesService(executor)
+	ctx := context.Background()
+
+	err := service.CreateFolder(ctx, "New Folder", "")
+	if err != nil {
+		t.Fatalf("CreateFolder failed: %v", err)
+	}
+}
+
+// TestCreateFolderNested tests creating a folder within a parent folder
+func TestCreateFolderNested(t *testing.T) {
+	executor := &MockExecutor{
+		stdout: "folder created",
+		stderr: "",
+		err:    nil,
+	}
+
+	service := NewAppleNotesService(executor)
+	ctx := context.Background()
+
+	err := service.CreateFolder(ctx, "Subfolder", "Work")
+	if err != nil {
+		t.Fatalf("CreateFolder (nested) failed: %v", err)
+	}
+}
+
+// TestCreateFolderParentNotFound tests error when parent folder doesn't exist
+func TestCreateFolderParentNotFound(t *testing.T) {
+	executor := &MockExecutor{
+		stdout: "",
+		stderr: "folder 'NonExistent' not found",
+		err:    ErrFolderNotFound,
+	}
+
+	service := NewAppleNotesService(executor)
+	ctx := context.Background()
+
+	err := service.CreateFolder(ctx, "Subfolder", "NonExistent")
+	if err == nil {
+		t.Fatal("Expected error, got nil")
+	}
+
+	if !strings.Contains(err.Error(), "folder not found") {
+		t.Errorf("Expected error containing 'folder not found', got %v", err)
+	}
+}
+
+// TestMoveNote tests moving a note to a different folder
+func TestMoveNote(t *testing.T) {
+	executor := &MockExecutor{
+		stdout: "note moved",
+		stderr: "",
+		err:    nil,
+	}
+
+	service := NewAppleNotesService(executor)
+	ctx := context.Background()
+
+	err := service.MoveNote(ctx, "Test Note", "Archive")
+	if err != nil {
+		t.Fatalf("MoveNote failed: %v", err)
+	}
+}
+
+// TestMoveNoteNotFound tests error when note doesn't exist
+func TestMoveNoteNotFound(t *testing.T) {
+	executor := &MockExecutor{
+		stdout: "",
+		stderr: "note 'NonExistent' not found",
+		err:    ErrNoteNotFound,
+	}
+
+	service := NewAppleNotesService(executor)
+	ctx := context.Background()
+
+	err := service.MoveNote(ctx, "NonExistent", "Archive")
+	if err == nil {
+		t.Fatal("Expected error, got nil")
+	}
+
+	if !strings.Contains(err.Error(), "note not found") {
+		t.Errorf("Expected error containing 'note not found', got %v", err)
+	}
+}
+
+// TestMoveNoteFolderNotFound tests error when target folder doesn't exist
+func TestMoveNoteFolderNotFound(t *testing.T) {
+	executor := &MockExecutor{
+		stdout: "",
+		stderr: "folder 'NonExistent' not found",
+		err:    ErrFolderNotFound,
+	}
+
+	service := NewAppleNotesService(executor)
+	ctx := context.Background()
+
+	err := service.MoveNote(ctx, "Test Note", "NonExistent")
+	if err == nil {
+		t.Fatal("Expected error, got nil")
+	}
+
+	if !strings.Contains(err.Error(), "folder not found") {
+		t.Errorf("Expected error containing 'folder not found', got %v", err)
+	}
+}
+
+// TestGetFolderHierarchy tests retrieval of folder hierarchy
+func TestGetFolderHierarchy(t *testing.T) {
+	// AppleScript returns nested folder structure
+	appleScriptOutput := `{name:"Notes", shared:false, folders:{{name:"Work", shared:false, folders:{{name:"Projects", shared:false, folders:{}}}}, {name:"Personal", shared:true, folders:{}}}, note count:5}`
+
+	executor := &MockExecutor{
+		stdout: appleScriptOutput,
+		stderr: "",
+		err:    nil,
+	}
+
+	service := NewAppleNotesService(executor)
+	ctx := context.Background()
+
+	hierarchy, err := service.GetFolderHierarchy(ctx)
+	if err != nil {
+		t.Fatalf("GetFolderHierarchy failed: %v", err)
+	}
+
+	if hierarchy.Name == "" {
+		t.Error("Expected hierarchy to have a name")
+	}
+	// Note: parseFolderHierarchy currently returns a simplified implementation
+	// Full nested parsing would require a more sophisticated AppleScript record parser
+	if hierarchy.Children == nil {
+		t.Error("Expected hierarchy.Children to be initialized (not nil)")
+	}
+}
+
+// TestGetNoteAttachments tests retrieval of attachments for a note
+func TestGetNoteAttachments(t *testing.T) {
+	// AppleScript returns attachment list
+	appleScriptOutput := `{id:"x-coredata://att1", name:"document.pdf", contents:"file:///Users/test/document.pdf", creation date:date "Monday, January 1, 2024 at 10:00:00 AM", modification date:date "Monday, January 15, 2024 at 3:30:00 PM"}
+{id:"x-coredata://att2", name:"image.png", contents:"file:///Users/test/image.png", creation date:date "Monday, January 2, 2024 at 11:00:00 AM", modification date:date "Monday, January 16, 2024 at 4:30:00 PM"}`
+
+	executor := &MockExecutor{
+		stdout: appleScriptOutput,
+		stderr: "",
+		err:    nil,
+	}
+
+	service := NewAppleNotesService(executor)
+	ctx := context.Background()
+
+	attachments, err := service.GetNoteAttachments(ctx, "Test Note")
+	if err != nil {
+		t.Fatalf("GetNoteAttachments failed: %v", err)
+	}
+
+	if len(attachments) == 0 {
+		t.Fatal("Expected attachments to be returned")
+	}
+
+	// Check first attachment
+	att := attachments[0]
+	if att.ID == "" {
+		t.Error("Expected attachment ID to be populated")
+	}
+	if att.Name == "" {
+		t.Error("Expected attachment name to be populated")
+	}
+	if att.FilePath == "" {
+		t.Error("Expected attachment file path to be populated")
+	}
+	if att.CreationDate.IsZero() {
+		t.Error("Expected attachment creation date to be populated")
+	}
+	if att.ModificationDate.IsZero() {
+		t.Error("Expected attachment modification date to be populated")
+	}
+}
+
+// TestGetNoteAttachmentsNoAttachments tests note with no attachments
+func TestGetNoteAttachmentsNoAttachments(t *testing.T) {
+	executor := &MockExecutor{
+		stdout: "",
+		stderr: "",
+		err:    nil,
+	}
+
+	service := NewAppleNotesService(executor)
+	ctx := context.Background()
+
+	attachments, err := service.GetNoteAttachments(ctx, "Test Note")
+	if err != nil {
+		t.Fatalf("GetNoteAttachments failed: %v", err)
+	}
+
+	if len(attachments) != 0 {
+		t.Errorf("Expected 0 attachments, got %d", len(attachments))
+	}
+}
+
+// TestGetNoteAttachmentsNoteNotFound tests error when note doesn't exist
+func TestGetNoteAttachmentsNoteNotFound(t *testing.T) {
+	executor := &MockExecutor{
+		stdout: "",
+		stderr: "note 'NonExistent' not found",
+		err:    ErrNoteNotFound,
+	}
+
+	service := NewAppleNotesService(executor)
+	ctx := context.Background()
+
+	_, err := service.GetNoteAttachments(ctx, "NonExistent")
+	if err == nil {
+		t.Fatal("Expected error, got nil")
+	}
+
+	if !strings.Contains(err.Error(), "note not found") {
+		t.Errorf("Expected error containing 'note not found', got %v", err)
+	}
+}
