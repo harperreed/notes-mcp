@@ -16,6 +16,9 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// Default timeout for tool operations
+const defaultOperationTimeout = 30 * time.Second
+
 var mcpCmd = &cobra.Command{
 	Use:   "mcp",
 	Short: "Start the MCP server",
@@ -83,7 +86,7 @@ func registerCreateNoteTool(server *mcp.Server, notesService services.NotesServi
 		}
 
 		// Create a context with timeout for the operation
-		opCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		opCtx, cancel := context.WithTimeout(ctx, defaultOperationTimeout)
 		defer cancel()
 
 		// Call the service
@@ -104,7 +107,7 @@ func registerCreateNoteTool(server *mcp.Server, notesService services.NotesServi
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "create_note",
-		Description: "Creates a new note in Apple Notes",
+		Description: "Creates a new note in Apple Notes with the specified title, content, and optional tags. Returns confirmation of note creation.",
 	}, handler)
 }
 
@@ -119,13 +122,24 @@ func registerSearchNotesTool(server *mcp.Server, notesService services.NotesServ
 		}
 
 		// Create a context with timeout for the operation
-		opCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		opCtx, cancel := context.WithTimeout(ctx, defaultOperationTimeout)
 		defer cancel()
 
 		// Call the service
 		notes, err := notesService.SearchNotes(opCtx, input.Query)
 		if err != nil {
 			return createErrorResult(err), nil, nil
+		}
+
+		// Handle empty results
+		if len(notes) == 0 {
+			return &mcp.CallToolResult{
+				Content: []mcp.Content{
+					&mcp.TextContent{
+						Text: "No notes found matching the query.",
+					},
+				},
+			}, nil, nil
 		}
 
 		// Format the results as newline-separated list of titles
@@ -147,7 +161,7 @@ func registerSearchNotesTool(server *mcp.Server, notesService services.NotesServ
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "search_notes",
-		Description: "Searches for notes by title query",
+		Description: "Searches for notes in Apple Notes by title. Returns a list of matching note titles, or a message if no notes are found.",
 	}, handler)
 }
 
@@ -162,7 +176,7 @@ func registerGetNoteContentTool(server *mcp.Server, notesService services.NotesS
 		}
 
 		// Create a context with timeout for the operation
-		opCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		opCtx, cancel := context.WithTimeout(ctx, defaultOperationTimeout)
 		defer cancel()
 
 		// Call the service
@@ -183,7 +197,7 @@ func registerGetNoteContentTool(server *mcp.Server, notesService services.NotesS
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "get_note_content",
-		Description: "Retrieves the full content of a note by title",
+		Description: "Retrieves the full content of a note from Apple Notes by its title. Returns the raw HTML body of the note.",
 	}, handler)
 }
 
