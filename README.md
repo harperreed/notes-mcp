@@ -1,5 +1,9 @@
 # Apple Notes MCP Server (Go Implementation)
 
+[![CI](https://github.com/harperreed/notes-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/harperreed/notes-mcp/actions/workflows/ci.yml)
+[![Release](https://github.com/harperreed/notes-mcp/actions/workflows/release.yml/badge.svg)](https://github.com/harperreed/notes-mcp/actions/workflows/release.yml)
+[![Go Report Card](https://goreportcard.com/badge/github.com/harperreed/notes-mcp)](https://goreportcard.com/report/github.com/harperreed/notes-mcp)
+
 A standalone Go implementation of an MCP (Model Context Protocol) server for Apple Notes, providing both MCP protocol integration and CLI tool functionality.
 
 ## Features
@@ -22,7 +26,13 @@ A standalone Go implementation of an MCP (Model Context Protocol) server for App
 
 ## Installation
 
-### Using Make (Recommended)
+### Using Homebrew (Recommended)
+
+```bash
+brew install harperreed/tap/notes-mcp
+```
+
+### Using Make
 
 ```bash
 make build        # Build the binary
