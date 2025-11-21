@@ -15,14 +15,15 @@ import (
 
 // mockNotesService is a simple mock for testing tool handlers
 type mockNotesService struct {
-	createNote       func(ctx context.Context, title, content string, tags []string) (*services.Note, error)
-	searchNotes      func(ctx context.Context, query string) ([]services.Note, error)
-	getNoteContent   func(ctx context.Context, title string) (string, error)
-	updateNote       func(ctx context.Context, title, content string) error
-	deleteNote       func(ctx context.Context, title string) error
-	listFolders      func(ctx context.Context) ([]string, error)
-	getRecentNotes   func(ctx context.Context, limit int) ([]services.Note, error)
-	getNotesInFolder func(ctx context.Context, folder string) ([]services.Note, error)
+	createNote          func(ctx context.Context, title, content string, tags []string) (*services.Note, error)
+	searchNotes         func(ctx context.Context, query string) ([]services.Note, error)
+	searchNotesAdvanced func(ctx context.Context, opts services.SearchOptions) ([]services.Note, error)
+	getNoteContent      func(ctx context.Context, title string) (string, error)
+	updateNote          func(ctx context.Context, title, content string) error
+	deleteNote          func(ctx context.Context, title string) error
+	listFolders         func(ctx context.Context) ([]string, error)
+	getRecentNotes      func(ctx context.Context, limit int) ([]services.Note, error)
+	getNotesInFolder    func(ctx context.Context, folder string) ([]services.Note, error)
 }
 
 func (m *mockNotesService) CreateNote(ctx context.Context, title, content string, tags []string) (*services.Note, error) {
@@ -35,6 +36,13 @@ func (m *mockNotesService) CreateNote(ctx context.Context, title, content string
 func (m *mockNotesService) SearchNotes(ctx context.Context, query string) ([]services.Note, error) {
 	if m.searchNotes != nil {
 		return m.searchNotes(ctx, query)
+	}
+	return nil, errors.New("not implemented")
+}
+
+func (m *mockNotesService) SearchNotesAdvanced(ctx context.Context, opts services.SearchOptions) ([]services.Note, error) {
+	if m.searchNotesAdvanced != nil {
+		return m.searchNotesAdvanced(ctx, opts)
 	}
 	return nil, errors.New("not implemented")
 }

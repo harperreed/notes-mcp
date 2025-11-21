@@ -19,6 +19,9 @@ type NotesService interface {
 	// SearchNotes searches for notes by title query
 	SearchNotes(ctx context.Context, query string) ([]Note, error)
 
+	// SearchNotesAdvanced searches for notes with advanced filters
+	SearchNotesAdvanced(ctx context.Context, opts SearchOptions) ([]Note, error)
+
 	// GetNoteContent retrieves the full content of a note by title
 	GetNoteContent(ctx context.Context, title string) (string, error)
 
@@ -79,6 +82,13 @@ type SearchOptions struct {
 	DateFrom *time.Time // optional: filter by date range
 	DateTo   *time.Time // optional: filter by date range
 }
+
+// Search location constants
+const (
+	SearchInTitle = "title"
+	SearchInBody  = "body"
+	SearchInBoth  = "both"
+)
 
 // AppleNotesService implements NotesService using AppleScript
 type AppleNotesService struct {
@@ -791,4 +801,287 @@ func (s *AppleNotesService) parseAttachments(output string) ([]Attachment, error
 	}
 
 	return attachments, nil
+}
+
+// SearchNotesAdvanced searches for notes with advanced filtering options
+// Supports searching in title, body, or both, with optional folder and date range filters
+// For performance: when searching body, folder/date filters are applied first to reduce dataset
+func (s *AppleNotesService) SearchNotesAdvanced(ctx context.Context, opts SearchOptions) ([]Note, error) {
+	// Validate and normalize SearchIn parameter
+	searchIn := opts.SearchIn
+	if searchIn == "" {
+		searchIn = SearchInTitle
+	}
+	if err := s.validateSearchIn(searchIn); err != nil {
+		return []Note{}, err
+	}
+
+	// Build and execute search script
+	script := s.buildSearchScript(searchIn, opts)
+	stdout, stderr, err := s.executor.Execute(ctx, script)
+	if err != nil {
+		detectedErr := DetectError(ctx, stderr, err)
+		return []Note{}, fmt.Errorf("failed to search notes: %w", detectedErr)
+	}
+
+	// Parse and return results
+	return s.parseSearchResults(stdout), nil
+}
+
+// validateSearchIn validates the SearchIn parameter
+func (s *AppleNotesService) validateSearchIn(searchIn string) error {
+	if searchIn != SearchInTitle && searchIn != SearchInBody && searchIn != SearchInBoth {
+		return fmt.Errorf("invalid SearchIn value: %q (must be 'title', 'body', or 'both')", searchIn)
+	}
+	return nil
+}
+
+// buildSearchScript builds the appropriate AppleScript based on search requirements
+func (s *AppleNotesService) buildSearchScript(searchIn string, opts SearchOptions) string {
+	safeQuery := s.escapeForAppleScript(opts.Query)
+	needsFiltering := opts.Folder != "" || opts.DateFrom != nil || opts.DateTo != nil
+	isBodySearch := searchIn == SearchInBody || searchIn == SearchInBoth
+
+	// Strategy: For body search with filters, apply folder/date filters first to reduce dataset
+	if isBodySearch && needsFiltering {
+		return s.buildFilteredBodySearch(safeQuery, searchIn, opts)
+	}
+
+	// Use switch for cleaner code
+	switch searchIn {
+	case SearchInTitle:
+		return s.buildTitleSearch(safeQuery, opts)
+	case SearchInBody:
+		return s.buildBodySearch(safeQuery, opts)
+	case SearchInBoth:
+		return s.buildBothSearch(safeQuery, opts)
+	default:
+		// This should never happen due to validation, but handle defensively
+		return s.buildTitleSearch(safeQuery, opts)
+	}
+}
+
+// parseSearchResults parses CSV output from AppleScript into Note slice
+func (s *AppleNotesService) parseSearchResults(stdout string) []Note {
+	stdout = strings.TrimSpace(stdout)
+	if stdout == "" {
+		return []Note{}
+	}
+
+	titles := strings.Split(stdout, ", ")
+	notes := make([]Note, 0, len(titles))
+	now := time.Now()
+
+	// Apply 100-result limit (from design requirement)
+	count := 0
+	for _, title := range titles {
+		title = strings.TrimSpace(title)
+		if title == "" {
+			continue
+		}
+
+		notes = append(notes, Note{
+			ID:       fmt.Sprintf("%d", now.UnixMilli()),
+			Title:    title,
+			Content:  "", // Search doesn't retrieve content
+			Tags:     []string{},
+			Created:  now,
+			Modified: now,
+		})
+
+		count++
+		if count >= 100 {
+			break
+		}
+	}
+
+	return notes
+}
+
+// buildTitleSearch builds AppleScript for title-only search with optional filters
+func (s *AppleNotesService) buildTitleSearch(safeQuery string, opts SearchOptions) string {
+	if opts.Folder == "" && opts.DateFrom == nil && opts.DateTo == nil {
+		// Simple title search (fast path)
+		return fmt.Sprintf(`
+			tell application "Notes"
+				tell account "%s"
+					get name of notes where name contains "%s"
+				end tell
+			end tell
+		`, s.iCloudAccount, safeQuery)
+	}
+
+	// Title search with filters
+	script := fmt.Sprintf(`
+		tell application "Notes"
+			tell account "%s"
+				set matchedNotes to {}
+	`, s.iCloudAccount)
+
+	// Build filter conditions
+	if opts.Folder != "" {
+		safeFolder := s.escapeForAppleScript(opts.Folder)
+		script += fmt.Sprintf(`
+				set targetFolder to folder "%s"
+				set candidateNotes to notes of targetFolder where name contains "%s"
+		`, safeFolder, safeQuery)
+	} else {
+		script += fmt.Sprintf(`
+				set candidateNotes to notes where name contains "%s"
+		`, safeQuery)
+	}
+
+	// Apply date filters if present
+	if opts.DateFrom != nil || opts.DateTo != nil {
+		script += `
+				repeat with n in candidateNotes
+		`
+		if opts.DateFrom != nil {
+			dateStr := s.formatAppleScriptDate(*opts.DateFrom)
+			script += fmt.Sprintf(`
+					if modification date of n < date "%s" then
+						next repeat
+					end if
+			`, dateStr)
+		}
+		if opts.DateTo != nil {
+			dateStr := s.formatAppleScriptDate(*opts.DateTo)
+			script += fmt.Sprintf(`
+					if modification date of n > date "%s" then
+						next repeat
+					end if
+			`, dateStr)
+		}
+		script += `
+					copy name of n to end of matchedNotes
+				end repeat
+				return matchedNotes
+		`
+	} else {
+		script += `
+				repeat with n in candidateNotes
+					copy name of n to end of matchedNotes
+				end repeat
+				return matchedNotes
+		`
+	}
+
+	script += `
+			end tell
+		end tell
+	`
+
+	return script
+}
+
+// buildBodySearch builds AppleScript for body-only search (no filters)
+func (s *AppleNotesService) buildBodySearch(safeQuery string, opts SearchOptions) string {
+	return fmt.Sprintf(`
+		tell application "Notes"
+			tell account "%s"
+				set matchedNotes to {}
+				set allNotes to notes
+				repeat with n in allNotes
+					if body of n contains "%s" then
+						copy name of n to end of matchedNotes
+					end if
+				end repeat
+				return matchedNotes
+			end tell
+		end tell
+	`, s.iCloudAccount, safeQuery)
+}
+
+// buildBothSearch builds AppleScript for searching both title and body (no filters)
+func (s *AppleNotesService) buildBothSearch(safeQuery string, opts SearchOptions) string {
+	return fmt.Sprintf(`
+		tell application "Notes"
+			tell account "%s"
+				set matchedNotes to {}
+				set allNotes to notes
+				repeat with n in allNotes
+					if (name of n contains "%s") or (body of n contains "%s") then
+						copy name of n to end of matchedNotes
+					end if
+				end repeat
+				return matchedNotes
+			end tell
+		end tell
+	`, s.iCloudAccount, safeQuery, safeQuery)
+}
+
+// buildFilteredBodySearch builds AppleScript for body search with pre-filtering
+// This is the performance optimization: filter by folder/date FIRST, then search body in subset
+func (s *AppleNotesService) buildFilteredBodySearch(safeQuery string, searchIn string, opts SearchOptions) string {
+	script := fmt.Sprintf(`
+		tell application "Notes"
+			tell account "%s"
+				set matchedNotes to {}
+	`, s.iCloudAccount)
+
+	// Get initial candidate set (folder filter)
+	if opts.Folder != "" {
+		safeFolder := s.escapeForAppleScript(opts.Folder)
+		script += fmt.Sprintf(`
+				set targetFolder to folder "%s"
+				set candidateNotes to notes of targetFolder
+		`, safeFolder)
+	} else {
+		script += `
+				set candidateNotes to notes
+		`
+	}
+
+	// Filter by date and search body
+	script += `
+				repeat with n in candidateNotes
+	`
+
+	// Apply date filters
+	if opts.DateFrom != nil {
+		dateStr := s.formatAppleScriptDate(*opts.DateFrom)
+		script += fmt.Sprintf(`
+					if modification date of n < date "%s" then
+						next repeat
+					end if
+		`, dateStr)
+	}
+	if opts.DateTo != nil {
+		dateStr := s.formatAppleScriptDate(*opts.DateTo)
+		script += fmt.Sprintf(`
+					if modification date of n > date "%s" then
+						next repeat
+					end if
+		`, dateStr)
+	}
+
+	// Search in body (and title if "both")
+	if searchIn == "both" {
+		script += fmt.Sprintf(`
+					if (name of n contains "%s") or (body of n contains "%s") then
+						copy name of n to end of matchedNotes
+					end if
+		`, safeQuery, safeQuery)
+	} else {
+		script += fmt.Sprintf(`
+					if body of n contains "%s" then
+						copy name of n to end of matchedNotes
+					end if
+		`, safeQuery)
+	}
+
+	script += `
+				end repeat
+				return matchedNotes
+			end tell
+		end tell
+	`
+
+	return script
+}
+
+// formatAppleScriptDate formats a time.Time into AppleScript date string
+// AppleScript dates: "Monday, January 1, 2024 at 10:00:00 AM"
+func (s *AppleNotesService) formatAppleScriptDate(t time.Time) string {
+	return t.Format("Monday, January 2, 2006 at 3:04:05 PM")
 }

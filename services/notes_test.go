@@ -1174,3 +1174,323 @@ func TestGetNoteAttachmentsNoteNotFound(t *testing.T) {
 		t.Errorf("Expected error containing 'note not found', got %v", err)
 	}
 }
+
+// TestSearchNotesAdvanced_TitleOnly tests searching in title only
+func TestSearchNotesAdvanced_TitleOnly(t *testing.T) {
+	executor := &MockExecutor{
+		stdout: "Meeting Notes, Project Ideas",
+		stderr: "",
+		err:    nil,
+	}
+
+	service := NewAppleNotesService(executor)
+	ctx := context.Background()
+
+	opts := SearchOptions{
+		Query:    "meeting",
+		SearchIn: "title",
+	}
+
+	notes, err := service.SearchNotesAdvanced(ctx, opts)
+	if err != nil {
+		t.Fatalf("SearchNotesAdvanced failed: %v", err)
+	}
+
+	if len(notes) != 2 {
+		t.Fatalf("Expected 2 notes, got %d", len(notes))
+	}
+
+	expectedTitles := []string{"Meeting Notes", "Project Ideas"}
+	for i, note := range notes {
+		if note.Title != expectedTitles[i] {
+			t.Errorf("Note %d title = %q, want %q", i, note.Title, expectedTitles[i])
+		}
+	}
+}
+
+// TestSearchNotesAdvanced_BodyOnly tests searching in body only
+func TestSearchNotesAdvanced_BodyOnly(t *testing.T) {
+	// Mock returns list of note titles that match body search
+	executor := &MockExecutor{
+		stdout: "Design Doc, Implementation Plan",
+		stderr: "",
+		err:    nil,
+	}
+
+	service := NewAppleNotesService(executor)
+	ctx := context.Background()
+
+	opts := SearchOptions{
+		Query:    "architecture",
+		SearchIn: "body",
+	}
+
+	notes, err := service.SearchNotesAdvanced(ctx, opts)
+	if err != nil {
+		t.Fatalf("SearchNotesAdvanced failed: %v", err)
+	}
+
+	if len(notes) != 2 {
+		t.Fatalf("Expected 2 notes, got %d", len(notes))
+	}
+
+	expectedTitles := []string{"Design Doc", "Implementation Plan"}
+	for i, note := range notes {
+		if note.Title != expectedTitles[i] {
+			t.Errorf("Note %d title = %q, want %q", i, note.Title, expectedTitles[i])
+		}
+	}
+}
+
+// TestSearchNotesAdvanced_Both tests searching in both title and body
+func TestSearchNotesAdvanced_Both(t *testing.T) {
+	executor := &MockExecutor{
+		stdout: "Meeting Notes, Design Doc, Project Ideas",
+		stderr: "",
+		err:    nil,
+	}
+
+	service := NewAppleNotesService(executor)
+	ctx := context.Background()
+
+	opts := SearchOptions{
+		Query:    "project",
+		SearchIn: "both",
+	}
+
+	notes, err := service.SearchNotesAdvanced(ctx, opts)
+	if err != nil {
+		t.Fatalf("SearchNotesAdvanced failed: %v", err)
+	}
+
+	if len(notes) != 3 {
+		t.Fatalf("Expected 3 notes, got %d", len(notes))
+	}
+}
+
+// TestSearchNotesAdvanced_FolderFilter tests filtering by folder
+func TestSearchNotesAdvanced_FolderFilter(t *testing.T) {
+	executor := &MockExecutor{
+		stdout: "Work Note 1, Work Note 2",
+		stderr: "",
+		err:    nil,
+	}
+
+	service := NewAppleNotesService(executor)
+	ctx := context.Background()
+
+	opts := SearchOptions{
+		Query:    "note",
+		SearchIn: "title",
+		Folder:   "Work",
+	}
+
+	notes, err := service.SearchNotesAdvanced(ctx, opts)
+	if err != nil {
+		t.Fatalf("SearchNotesAdvanced failed: %v", err)
+	}
+
+	if len(notes) != 2 {
+		t.Fatalf("Expected 2 notes, got %d", len(notes))
+	}
+}
+
+// TestSearchNotesAdvanced_DateRangeFilter tests filtering by date range
+func TestSearchNotesAdvanced_DateRangeFilter(t *testing.T) {
+	executor := &MockExecutor{
+		stdout: "Recent Note 1, Recent Note 2",
+		stderr: "",
+		err:    nil,
+	}
+
+	service := NewAppleNotesService(executor)
+	ctx := context.Background()
+
+	dateFrom := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
+	dateTo := time.Date(2024, 12, 31, 23, 59, 59, 0, time.UTC)
+
+	opts := SearchOptions{
+		Query:    "note",
+		SearchIn: "title",
+		DateFrom: &dateFrom,
+		DateTo:   &dateTo,
+	}
+
+	notes, err := service.SearchNotesAdvanced(ctx, opts)
+	if err != nil {
+		t.Fatalf("SearchNotesAdvanced failed: %v", err)
+	}
+
+	if len(notes) != 2 {
+		t.Fatalf("Expected 2 notes, got %d", len(notes))
+	}
+}
+
+// TestSearchNotesAdvanced_CombinedFilters tests folder and date filters together
+func TestSearchNotesAdvanced_CombinedFilters(t *testing.T) {
+	executor := &MockExecutor{
+		stdout: "Work Note Q1",
+		stderr: "",
+		err:    nil,
+	}
+
+	service := NewAppleNotesService(executor)
+	ctx := context.Background()
+
+	dateFrom := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
+	dateTo := time.Date(2024, 3, 31, 23, 59, 59, 0, time.UTC)
+
+	opts := SearchOptions{
+		Query:    "note",
+		SearchIn: "title",
+		Folder:   "Work",
+		DateFrom: &dateFrom,
+		DateTo:   &dateTo,
+	}
+
+	notes, err := service.SearchNotesAdvanced(ctx, opts)
+	if err != nil {
+		t.Fatalf("SearchNotesAdvanced failed: %v", err)
+	}
+
+	if len(notes) != 1 {
+		t.Fatalf("Expected 1 note, got %d", len(notes))
+	}
+
+	if notes[0].Title != "Work Note Q1" {
+		t.Errorf("Note title = %q, want %q", notes[0].Title, "Work Note Q1")
+	}
+}
+
+// TestSearchNotesAdvanced_BodySearchWithFilters tests body search with folder/date filters applied first
+func TestSearchNotesAdvanced_BodySearchWithFilters(t *testing.T) {
+	executor := &MockExecutor{
+		stdout: "Filtered Note",
+		stderr: "",
+		err:    nil,
+	}
+
+	service := NewAppleNotesService(executor)
+	ctx := context.Background()
+
+	dateFrom := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
+
+	opts := SearchOptions{
+		Query:    "architecture",
+		SearchIn: "body",
+		Folder:   "Work",
+		DateFrom: &dateFrom,
+	}
+
+	notes, err := service.SearchNotesAdvanced(ctx, opts)
+	if err != nil {
+		t.Fatalf("SearchNotesAdvanced failed: %v", err)
+	}
+
+	if len(notes) != 1 {
+		t.Fatalf("Expected 1 note, got %d", len(notes))
+	}
+}
+
+// TestSearchNotesAdvanced_InvalidSearchIn tests error handling for invalid SearchIn value
+func TestSearchNotesAdvanced_InvalidSearchIn(t *testing.T) {
+	executor := &MockExecutor{}
+	service := NewAppleNotesService(executor)
+	ctx := context.Background()
+
+	opts := SearchOptions{
+		Query:    "test",
+		SearchIn: "invalid",
+	}
+
+	_, err := service.SearchNotesAdvanced(ctx, opts)
+	if err == nil {
+		t.Fatal("Expected error for invalid SearchIn value, got nil")
+	}
+
+	if !strings.Contains(err.Error(), "invalid SearchIn value") {
+		t.Errorf("Expected error containing 'invalid SearchIn value', got %v", err)
+	}
+}
+
+// TestSearchNotesAdvanced_EmptySearchIn tests default to title search when SearchIn is empty
+func TestSearchNotesAdvanced_EmptySearchIn(t *testing.T) {
+	executor := &MockExecutor{
+		stdout: "Note 1, Note 2",
+		stderr: "",
+		err:    nil,
+	}
+
+	service := NewAppleNotesService(executor)
+	ctx := context.Background()
+
+	opts := SearchOptions{
+		Query:    "note",
+		SearchIn: "", // Empty should default to title search
+	}
+
+	notes, err := service.SearchNotesAdvanced(ctx, opts)
+	if err != nil {
+		t.Fatalf("SearchNotesAdvanced failed: %v", err)
+	}
+
+	if len(notes) != 2 {
+		t.Fatalf("Expected 2 notes, got %d", len(notes))
+	}
+}
+
+// TestSearchNotesAdvanced_EmptyResults tests empty search results
+func TestSearchNotesAdvanced_EmptyResults(t *testing.T) {
+	executor := &MockExecutor{
+		stdout: "",
+		stderr: "",
+		err:    nil,
+	}
+
+	service := NewAppleNotesService(executor)
+	ctx := context.Background()
+
+	opts := SearchOptions{
+		Query:    "nonexistent",
+		SearchIn: "title",
+	}
+
+	notes, err := service.SearchNotesAdvanced(ctx, opts)
+	if err != nil {
+		t.Fatalf("SearchNotesAdvanced failed: %v", err)
+	}
+
+	if len(notes) != 0 {
+		t.Errorf("Expected empty result, got %d notes", len(notes))
+	}
+}
+
+// TestSearchNotesAdvanced_ExecutorError tests error handling from executor
+func TestSearchNotesAdvanced_ExecutorError(t *testing.T) {
+	executor := &MockExecutor{
+		stdout: "",
+		stderr: "Apple Notes app not running",
+		err:    ErrNotesAppNotRunning,
+	}
+
+	service := NewAppleNotesService(executor)
+	ctx := context.Background()
+
+	opts := SearchOptions{
+		Query:    "test",
+		SearchIn: "title",
+	}
+
+	notes, err := service.SearchNotesAdvanced(ctx, opts)
+	if err == nil {
+		t.Fatal("Expected error, got nil")
+	}
+
+	if !strings.Contains(err.Error(), "Apple Notes app not running") {
+		t.Errorf("Expected error containing 'Apple Notes app not running', got %v", err)
+	}
+
+	if len(notes) != 0 {
+		t.Errorf("Expected empty notes on error, got %d", len(notes))
+	}
+}
