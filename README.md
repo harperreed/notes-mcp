@@ -42,7 +42,7 @@ make install      # Install to /usr/local/bin
 ### Using Go directly
 
 ```bash
-go build -o mcp-apple-notes-go .
+go build -o apple-notes-mcp .
 ```
 
 ## Usage
@@ -52,7 +52,7 @@ go build -o mcp-apple-notes-go .
 Run as an MCP server for integration with Claude Desktop:
 
 ```bash
-./mcp-apple-notes-go mcp
+apple-notes-mcp mcp
 ```
 
 ### CLI Tool Mode
@@ -63,77 +63,77 @@ Use as a command-line tool:
 
 ```bash
 # Create a note
-./mcp-apple-notes-go create "Meeting Notes" "Discussed Q4 roadmap" --tags=work,meeting
+apple-notes-mcp create "Meeting Notes" "Discussed Q4 roadmap" --tags=work,meeting
 
 # Get note content with full metadata
-./mcp-apple-notes-go get "Meeting Notes"
+apple-notes-mcp get "Meeting Notes"
 
 # Update a note
-./mcp-apple-notes-go update "Meeting Notes" "Updated Q4 roadmap with new timeline"
+apple-notes-mcp update "Meeting Notes" "Updated Q4 roadmap with new timeline"
 
 # Delete a note
-./mcp-apple-notes-go delete "Old Note"
+apple-notes-mcp delete "Old Note"
 ```
 
 #### Search and Discovery
 
 ```bash
 # Basic search by title
-./mcp-apple-notes-go search "meeting"
+apple-notes-mcp search "meeting"
 
 # Advanced search in note body
-./mcp-apple-notes-go search-advanced "roadmap" --search-in=body
+apple-notes-mcp search-advanced "roadmap" --search-in=body
 
 # Search with folder filter
-./mcp-apple-notes-go search-advanced "meeting" --folder="Work"
+apple-notes-mcp search-advanced "meeting" --folder="Work"
 
 # Search with date range
-./mcp-apple-notes-go search-advanced "project" --date-from="2024-01-01" --date-to="2024-12-31"
+apple-notes-mcp search-advanced "project" --date-from="2024-01-01" --date-to="2024-12-31"
 
 # Combine all filters
-./mcp-apple-notes-go search-advanced "roadmap" --search-in=both --folder="Work" --date-from="2024-01-01"
+apple-notes-mcp search-advanced "roadmap" --search-in=both --folder="Work" --date-from="2024-01-01"
 ```
 
 #### Folder Management
 
 ```bash
 # List all folders
-./mcp-apple-notes-go folders
+apple-notes-mcp folders
 
 # Create a folder at root level
-./mcp-apple-notes-go create-folder "Work Projects"
+apple-notes-mcp create-folder "Work Projects"
 
 # Create a nested folder
-./mcp-apple-notes-go create-folder "Active Projects" --parent="Work"
+apple-notes-mcp create-folder "Active Projects" --parent="Work"
 
 # Move a note to different folder
-./mcp-apple-notes-go move-note "Meeting Notes" "Archive"
+apple-notes-mcp move-note "Meeting Notes" "Archive"
 
 # Get folder hierarchy with note counts
-./mcp-apple-notes-go folder-hierarchy
+apple-notes-mcp folder-hierarchy
 ```
 
 #### Attachments
 
 ```bash
 # List attachments in a note
-./mcp-apple-notes-go attachments "Trip Photos"
+apple-notes-mcp attachments "Trip Photos"
 
 # Get attachment content (saves to file or stdout)
-./mcp-apple-notes-go get-attachment "x-coredata://..." --output="photo.jpg"
+apple-notes-mcp get-attachment "x-coredata://..." --output="photo.jpg"
 
 # Get attachment with size limit
-./mcp-apple-notes-go get-attachment "x-coredata://..." --max-size=5
+apple-notes-mcp get-attachment "x-coredata://..." --max-size=5
 ```
 
 #### Export
 
 ```bash
 # Export note as markdown
-./mcp-apple-notes-go export-markdown "Design Doc"
+apple-notes-mcp export-markdown "Design Doc"
 
 # Export note as plain text
-./mcp-apple-notes-go export-text "Design Doc"
+apple-notes-mcp export-text "Design Doc"
 ```
 
 ## Claude Desktop Integration
@@ -143,8 +143,8 @@ Add to your Claude Desktop configuration:
 ```json
 {
   "mcpServers": {
-    "apple-notes-go": {
-      "command": "/path/to/notes-mcp/mcp-apple-notes-go",
+    "apple-notes": {
+      "command": "apple-notes-mcp",
       "args": ["mcp"],
       "env": {
         "NOTES_MCP_TIMEOUT": "60"

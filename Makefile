@@ -4,7 +4,7 @@
 .PHONY: help build test test-integration test-all lint clean install run dev format check pre-commit
 
 # Binary name
-BINARY_NAME=mcp-apple-notes-go
+BINARY_NAME=apple-notes-mcp
 INSTALL_PATH=/usr/local/bin
 
 # Go parameters

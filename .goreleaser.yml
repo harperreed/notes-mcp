@@ -7,7 +7,7 @@ before:
 
 builds:
   - main: .
-    binary: mcp-apple-notes-go
+    binary: apple-notes-mcp
     goos:
       - darwin
     goarch:
@@ -35,9 +35,9 @@ brews:
     homepage: "https://github.com/harperreed/notes-mcp"
     description: "MCP server for Apple Notes with CLI tools"
     install: |
-      bin.install "mcp-apple-notes-go"
+      bin.install "apple-notes-mcp"
     test: |
-      system "#{bin}/mcp-apple-notes-go", "--version"
+      system "#{bin}/apple-notes-mcp", "--version"
 
 changelog:
   sort: asc
