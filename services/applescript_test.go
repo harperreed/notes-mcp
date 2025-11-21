@@ -4,12 +4,22 @@ package services
 
 import (
 	"context"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
 )
 
+// skipIfNotMacOS skips the test if not running on macOS (darwin)
+func skipIfNotMacOS(t *testing.T) {
+	t.Helper()
+	if runtime.GOOS != "darwin" {
+		t.Skip("Skipping test: osascript only available on macOS")
+	}
+}
+
 func TestOSAScriptExecutor_Execute_Success(t *testing.T) {
+	skipIfNotMacOS(t)
 	executor := NewOSAScriptExecutor(10 * time.Second)
 
 	// Simple AppleScript that prints to stdout
@@ -31,6 +41,7 @@ func TestOSAScriptExecutor_Execute_Success(t *testing.T) {
 }
 
 func TestOSAScriptExecutor_Execute_ScriptError(t *testing.T) {
+	skipIfNotMacOS(t)
 	executor := NewOSAScriptExecutor(10 * time.Second)
 
 	// Invalid AppleScript that will fail
@@ -52,6 +63,7 @@ func TestOSAScriptExecutor_Execute_ScriptError(t *testing.T) {
 }
 
 func TestOSAScriptExecutor_Execute_Timeout(t *testing.T) {
+	skipIfNotMacOS(t)
 	// Create executor with very short timeout
 	executor := NewOSAScriptExecutor(100 * time.Millisecond)
 
@@ -73,6 +85,7 @@ func TestOSAScriptExecutor_Execute_Timeout(t *testing.T) {
 }
 
 func TestOSAScriptExecutor_Execute_ContextCancellation(t *testing.T) {
+	skipIfNotMacOS(t)
 	executor := NewOSAScriptExecutor(10 * time.Second)
 
 	// Create a context that we'll cancel
@@ -95,6 +108,7 @@ func TestOSAScriptExecutor_Execute_ContextCancellation(t *testing.T) {
 }
 
 func TestOSAScriptExecutor_Execute_CapturesStdoutAndStderr(t *testing.T) {
+	skipIfNotMacOS(t)
 	executor := NewOSAScriptExecutor(10 * time.Second)
 
 	// Script that outputs to both stdout (via return) and stderr (via log)
