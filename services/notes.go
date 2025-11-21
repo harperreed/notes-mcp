@@ -23,6 +23,9 @@ type NotesService interface {
 
 	// UpdateNote updates an existing note's content by title
 	UpdateNote(ctx context.Context, title, content string) error
+
+	// DeleteNote deletes a note by title
+	DeleteNote(ctx context.Context, title string) error
 }
 
 // Note represents a note entity
@@ -207,6 +210,34 @@ func (s *AppleNotesService) UpdateNote(ctx context.Context, title, content strin
 		// Detect and wrap the error appropriately
 		detectedErr := DetectError(ctx, stderr, err)
 		return fmt.Errorf("failed to update note: %w", detectedErr)
+	}
+
+	// Log success (stdout might contain confirmation)
+	_ = stdout
+
+	return nil
+}
+
+// DeleteNote deletes a note by its title
+func (s *AppleNotesService) DeleteNote(ctx context.Context, title string) error {
+	// Escape title
+	safeTitle := s.escapeForAppleScript(title)
+
+	// Generate AppleScript to delete note
+	script := fmt.Sprintf(`
+		tell application "Notes"
+			tell account "%s"
+				delete note "%s"
+			end tell
+		end tell
+	`, s.iCloudAccount, safeTitle)
+
+	// Execute the script
+	stdout, stderr, err := s.executor.Execute(ctx, script)
+	if err != nil {
+		// Detect and wrap the error appropriately
+		detectedErr := DetectError(ctx, stderr, err)
+		return fmt.Errorf("failed to delete note: %w", detectedErr)
 	}
 
 	// Log success (stdout might contain confirmation)

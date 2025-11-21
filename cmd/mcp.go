@@ -1,5 +1,5 @@
 // ABOUTME: MCP server subcommand that starts the Model Context Protocol server
-// ABOUTME: Implements stdio-based MCP server with four tools: create_note, search_notes, get_note_content, update_note
+// ABOUTME: Implements stdio-based MCP server with five tools: create_note, search_notes, get_note_content, update_note, delete_note
 
 package cmd
 
@@ -48,6 +48,10 @@ type UpdateNoteArgs struct {
 	Content string `json:"content" jsonschema:"The new content for the note"`
 }
 
+type DeleteNoteArgs struct {
+	Title string `json:"title" jsonschema:"The title of the note to delete"`
+}
+
 // runMCPServer starts the MCP server in stdio mode
 func runMCPServer(cmd *cobra.Command, args []string) {
 	// Create the notes service
@@ -68,6 +72,7 @@ func runMCPServer(cmd *cobra.Command, args []string) {
 	registerSearchNotesTool(server, notesService)
 	registerGetNoteContentTool(server, notesService)
 	registerUpdateNoteTool(server, notesService)
+	registerDeleteNoteTool(server, notesService)
 
 	// Run the server over stdio transport
 	if err := server.Run(context.Background(), &mcp.StdioTransport{}); err != nil {
@@ -251,6 +256,42 @@ func registerUpdateNoteTool(server *mcp.Server, notesService services.NotesServi
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "update_note",
 		Description: "Updates the content of an existing note in Apple Notes by its title. Returns confirmation of note update.",
+	}, handler)
+}
+
+// registerDeleteNoteTool registers the delete_note tool
+func registerDeleteNoteTool(server *mcp.Server, notesService services.NotesService) {
+	handler := func(ctx context.Context, req *mcp.CallToolRequest, input DeleteNoteArgs) (
+		*mcp.CallToolResult, any, error) {
+
+		// Validate required fields
+		if input.Title == "" {
+			return nil, nil, fmt.Errorf("%w: title is required", services.ErrInvalidInput)
+		}
+
+		// Create a context with timeout for the operation
+		opCtx, cancel := context.WithTimeout(ctx, getOperationTimeout())
+		defer cancel()
+
+		// Call the service
+		err := notesService.DeleteNote(opCtx, input.Title)
+		if err != nil {
+			return createErrorResult(err), nil, nil
+		}
+
+		// Return success result
+		return &mcp.CallToolResult{
+			Content: []mcp.Content{
+				&mcp.TextContent{
+					Text: fmt.Sprintf("Note deleted: %s", input.Title),
+				},
+			},
+		}, nil, nil
+	}
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "delete_note",
+		Description: "Deletes a note from Apple Notes by its title. Returns confirmation of note deletion.",
 	}, handler)
 }
 

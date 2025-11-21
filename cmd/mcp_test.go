@@ -19,6 +19,7 @@ type mockNotesService struct {
 	searchNotes     func(ctx context.Context, query string) ([]services.Note, error)
 	getNoteContent  func(ctx context.Context, title string) (string, error)
 	updateNote      func(ctx context.Context, title, content string) error
+	deleteNote      func(ctx context.Context, title string) error
 }
 
 func (m *mockNotesService) CreateNote(ctx context.Context, title, content string, tags []string) (*services.Note, error) {
@@ -45,6 +46,13 @@ func (m *mockNotesService) GetNoteContent(ctx context.Context, title string) (st
 func (m *mockNotesService) UpdateNote(ctx context.Context, title, content string) error {
 	if m.updateNote != nil {
 		return m.updateNote(ctx, title, content)
+	}
+	return errors.New("not implemented")
+}
+
+func (m *mockNotesService) DeleteNote(ctx context.Context, title string) error {
+	if m.deleteNote != nil {
+		return m.deleteNote(ctx, title)
 	}
 	return errors.New("not implemented")
 }
