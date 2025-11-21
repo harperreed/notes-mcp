@@ -1064,8 +1064,8 @@ func TestMoveNoteFolderNotFound(t *testing.T) {
 
 // TestGetFolderHierarchy tests retrieval of folder hierarchy
 func TestGetFolderHierarchy(t *testing.T) {
-	// AppleScript returns nested folder structure
-	appleScriptOutput := `{name:"Notes", shared:false, folders:{{name:"Work", shared:false, folders:{{name:"Projects", shared:false, folders:{}}}}, {name:"Personal", shared:true, folders:{}}}, note count:5}`
+	// AppleScript returns nested folder structure with the actual format from GetFolderHierarchy
+	appleScriptOutput := `{name:"iCloud", shared:false, noteCount:0, children:{{name:"Work", shared:false, noteCount:3, children:{{name:"Projects", shared:false, noteCount:2, children:{}}}}, {name:"Personal", shared:true, noteCount:5, children:{}}}}`
 
 	executor := &MockExecutor{
 		stdout: appleScriptOutput,
@@ -1081,13 +1081,62 @@ func TestGetFolderHierarchy(t *testing.T) {
 		t.Fatalf("GetFolderHierarchy failed: %v", err)
 	}
 
-	if hierarchy.Name == "" {
-		t.Error("Expected hierarchy to have a name")
+	// Verify root node
+	if hierarchy.Name != "iCloud" {
+		t.Errorf("Expected hierarchy name 'iCloud', got '%s'", hierarchy.Name)
 	}
-	// Note: parseFolderHierarchy currently returns a simplified implementation
-	// Full nested parsing would require a more sophisticated AppleScript record parser
-	if hierarchy.Children == nil {
-		t.Error("Expected hierarchy.Children to be initialized (not nil)")
+	if hierarchy.Shared {
+		t.Error("Expected root to not be shared")
+	}
+	if hierarchy.NoteCount != 0 {
+		t.Errorf("Expected root noteCount 0, got %d", hierarchy.NoteCount)
+	}
+
+	// Verify children were parsed
+	if len(hierarchy.Children) != 2 {
+		t.Fatalf("Expected 2 children, got %d", len(hierarchy.Children))
+	}
+
+	// Verify first child (Work)
+	work := hierarchy.Children[0]
+	if work.Name != "Work" {
+		t.Errorf("Expected first child name 'Work', got '%s'", work.Name)
+	}
+	if work.Shared {
+		t.Error("Expected Work folder to not be shared")
+	}
+	if work.NoteCount != 3 {
+		t.Errorf("Expected Work noteCount 3, got %d", work.NoteCount)
+	}
+	if len(work.Children) != 1 {
+		t.Fatalf("Expected Work to have 1 child, got %d", len(work.Children))
+	}
+
+	// Verify nested child (Projects)
+	projects := work.Children[0]
+	if projects.Name != "Projects" {
+		t.Errorf("Expected nested child name 'Projects', got '%s'", projects.Name)
+	}
+	if projects.NoteCount != 2 {
+		t.Errorf("Expected Projects noteCount 2, got %d", projects.NoteCount)
+	}
+	if len(projects.Children) != 0 {
+		t.Errorf("Expected Projects to have 0 children, got %d", len(projects.Children))
+	}
+
+	// Verify second child (Personal)
+	personal := hierarchy.Children[1]
+	if personal.Name != "Personal" {
+		t.Errorf("Expected second child name 'Personal', got '%s'", personal.Name)
+	}
+	if !personal.Shared {
+		t.Error("Expected Personal folder to be shared")
+	}
+	if personal.NoteCount != 5 {
+		t.Errorf("Expected Personal noteCount 5, got %d", personal.NoteCount)
+	}
+	if len(personal.Children) != 0 {
+		t.Errorf("Expected Personal to have 0 children, got %d", len(personal.Children))
 	}
 }
 

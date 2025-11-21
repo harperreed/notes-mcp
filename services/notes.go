@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -723,18 +724,271 @@ func (s *AppleNotesService) GetFolderHierarchy(ctx context.Context) (*FolderNode
 // parseFolderHierarchy parses AppleScript folder hierarchy output into FolderNode structure
 // AppleScript returns records like: {name:"Work", shared:false, noteCount:5, children:{{...}}}
 func (s *AppleNotesService) parseFolderHierarchy(output string) (*FolderNode, error) {
-	// For now, create a simple root node
-	// Full parsing of nested AppleScript records would require a more sophisticated parser
-	root := &FolderNode{
-		Name:      s.iCloudAccount,
-		Shared:    false,
-		Children:  []FolderNode{},
-		NoteCount: 0,
+	output = strings.TrimSpace(output)
+	if output == "" {
+		return nil, fmt.Errorf("empty AppleScript output")
 	}
 
-	// Extract folder names from the output (simplified parsing)
-	// In a production implementation, this would properly parse the nested record structure
-	return root, nil
+	node, _, err := s.parseRecord(output, 0)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse folder hierarchy: %w", err)
+	}
+
+	return node, nil
+}
+
+// parseRecord parses a single AppleScript record starting at the given position
+// Returns the parsed FolderNode, the position after parsing, and any error
+func (s *AppleNotesService) parseRecord(input string, start int) (*FolderNode, int, error) {
+	node := &FolderNode{Children: []FolderNode{}}
+	pos := s.skipWhitespace(input, start)
+
+	// Expect opening brace
+	if pos >= len(input) || input[pos] != '{' {
+		return nil, pos, fmt.Errorf("expected '{' at position %d", pos)
+	}
+	pos++ // skip '{'
+
+	// Parse key-value pairs
+	pos, err := s.parseRecordFields(input, pos, node)
+	if err != nil {
+		return nil, pos, err
+	}
+
+	return node, pos, nil
+}
+
+// skipWhitespace skips whitespace characters and returns the new position
+func (s *AppleNotesService) skipWhitespace(input string, start int) int {
+	pos := start
+	for pos < len(input) && (input[pos] == ' ' || input[pos] == '\t' || input[pos] == '\n' || input[pos] == '\r') {
+		pos++
+	}
+	return pos
+}
+
+// parseRecordFields parses all key-value pairs in a record
+func (s *AppleNotesService) parseRecordFields(input string, start int, node *FolderNode) (int, error) {
+	pos := start
+	for {
+		pos = s.skipWhitespace(input, pos)
+
+		// Check for closing brace
+		if pos >= len(input) {
+			return pos, fmt.Errorf("unexpected end of input")
+		}
+		if input[pos] == '}' {
+			pos++ // skip '}'
+			break
+		}
+
+		// Parse key-value pair
+		var err error
+		pos, err = s.parseRecordField(input, pos, node)
+		if err != nil {
+			return pos, err
+		}
+
+		pos = s.skipWhitespace(input, pos)
+
+		// Check for comma
+		if pos < len(input) && input[pos] == ',' {
+			pos++ // skip ','
+		}
+	}
+	return pos, nil
+}
+
+// parseRecordField parses a single key-value pair
+func (s *AppleNotesService) parseRecordField(input string, start int, node *FolderNode) (int, error) {
+	// Parse key
+	keyStart := start
+	pos := start
+	for pos < len(input) && input[pos] != ':' {
+		pos++
+	}
+	if pos >= len(input) {
+		return pos, fmt.Errorf("unexpected end of input while parsing key")
+	}
+	key := strings.TrimSpace(input[keyStart:pos])
+	pos++ // skip ':'
+
+	// Skip whitespace after colon
+	pos = s.skipWhitespace(input, pos)
+
+	// Parse value based on key
+	return s.parseFieldValue(input, pos, key, node)
+}
+
+// parseFieldValue parses the value for a specific field key
+func (s *AppleNotesService) parseFieldValue(input string, pos int, key string, node *FolderNode) (int, error) {
+	var err error
+	switch key {
+	case "name":
+		node.Name, pos, err = s.parseString(input, pos)
+		if err != nil {
+			return pos, fmt.Errorf("failed to parse name: %w", err)
+		}
+	case "shared":
+		node.Shared, pos, err = s.parseBool(input, pos)
+		if err != nil {
+			return pos, fmt.Errorf("failed to parse shared: %w", err)
+		}
+	case "noteCount":
+		node.NoteCount, pos, err = s.parseInt(input, pos)
+		if err != nil {
+			return pos, fmt.Errorf("failed to parse noteCount: %w", err)
+		}
+	case "children":
+		node.Children, pos, err = s.parseChildren(input, pos)
+		if err != nil {
+			return pos, fmt.Errorf("failed to parse children: %w", err)
+		}
+	default:
+		return pos, fmt.Errorf("unknown key: %s", key)
+	}
+	return pos, nil
+}
+
+// parseString parses a quoted string from the input
+func (s *AppleNotesService) parseString(input string, start int) (string, int, error) {
+	pos := start
+
+	// Skip whitespace
+	for pos < len(input) && (input[pos] == ' ' || input[pos] == '\t') {
+		pos++
+	}
+
+	// Expect opening quote
+	if pos >= len(input) || input[pos] != '"' {
+		return "", pos, fmt.Errorf("expected '\"' at position %d", pos)
+	}
+	pos++ // skip '"'
+
+	// Find closing quote
+	valueStart := pos
+	for pos < len(input) && input[pos] != '"' {
+		if input[pos] == '\\' {
+			pos++ // skip escaped character
+			if pos >= len(input) {
+				return "", pos, fmt.Errorf("unexpected end of input in string")
+			}
+		}
+		pos++
+	}
+
+	if pos >= len(input) {
+		return "", pos, fmt.Errorf("unterminated string")
+	}
+
+	value := input[valueStart:pos]
+	pos++ // skip closing '"'
+
+	return value, pos, nil
+}
+
+// parseBool parses a boolean value from the input
+func (s *AppleNotesService) parseBool(input string, start int) (bool, int, error) {
+	pos := start
+
+	// Skip whitespace
+	for pos < len(input) && (input[pos] == ' ' || input[pos] == '\t') {
+		pos++
+	}
+
+	if pos >= len(input) {
+		return false, pos, fmt.Errorf("unexpected end of input while parsing bool")
+	}
+
+	if strings.HasPrefix(input[pos:], "true") {
+		return true, pos + 4, nil
+	} else if strings.HasPrefix(input[pos:], "false") {
+		return false, pos + 5, nil
+	}
+
+	return false, pos, fmt.Errorf("expected 'true' or 'false' at position %d", pos)
+}
+
+// parseInt parses an integer value from the input
+func (s *AppleNotesService) parseInt(input string, start int) (int, int, error) {
+	pos := start
+
+	// Skip whitespace
+	for pos < len(input) && (input[pos] == ' ' || input[pos] == '\t') {
+		pos++
+	}
+
+	// Parse digits
+	valueStart := pos
+	for pos < len(input) && input[pos] >= '0' && input[pos] <= '9' {
+		pos++
+	}
+
+	if pos == valueStart {
+		return 0, pos, fmt.Errorf("expected integer at position %d", pos)
+	}
+
+	value, err := strconv.Atoi(input[valueStart:pos])
+	if err != nil {
+		return 0, pos, fmt.Errorf("failed to parse integer: %w", err)
+	}
+
+	return value, pos, nil
+}
+
+// parseChildren parses a list of child folder records
+func (s *AppleNotesService) parseChildren(input string, start int) ([]FolderNode, int, error) {
+	pos := s.skipWhitespace(input, start)
+
+	// Expect opening brace
+	if pos >= len(input) || input[pos] != '{' {
+		return nil, pos, fmt.Errorf("expected '{' at position %d", pos)
+	}
+	pos++ // skip '{'
+
+	// Parse child records
+	children, pos, err := s.parseChildRecords(input, pos)
+	if err != nil {
+		return nil, pos, err
+	}
+
+	return children, pos, nil
+}
+
+// parseChildRecords parses individual child records until closing brace
+func (s *AppleNotesService) parseChildRecords(input string, start int) ([]FolderNode, int, error) {
+	children := []FolderNode{}
+	pos := start
+
+	for {
+		pos = s.skipWhitespace(input, pos)
+
+		// Check for closing brace
+		if pos >= len(input) {
+			return nil, pos, fmt.Errorf("unexpected end of input")
+		}
+		if input[pos] == '}' {
+			pos++ // skip '}'
+			break
+		}
+
+		// Parse child record
+		child, newPos, err := s.parseRecord(input, pos)
+		if err != nil {
+			return nil, pos, fmt.Errorf("failed to parse child record: %w", err)
+		}
+		children = append(children, *child)
+		pos = newPos
+
+		pos = s.skipWhitespace(input, pos)
+
+		// Check for comma
+		if pos < len(input) && input[pos] == ',' {
+			pos++ // skip ','
+		}
+	}
+
+	return children, pos, nil
 }
 
 // GetNoteAttachments retrieves all attachments for a note
