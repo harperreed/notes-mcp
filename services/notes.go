@@ -39,12 +39,44 @@ type NotesService interface {
 
 // Note represents a note entity
 type Note struct {
-	ID       string    `json:"id"`
-	Title    string    `json:"title"`
-	Content  string    `json:"content"`
-	Tags     []string  `json:"tags"`
-	Created  time.Time `json:"created"`
-	Modified time.Time `json:"modified"`
+	ID                string    `json:"id"`
+	Title             string    `json:"title"`
+	Content           string    `json:"content,omitempty"`
+	Tags              []string  `json:"tags"`
+	Created           time.Time `json:"created"`
+	Modified          time.Time `json:"modified"`
+	CreationDate      time.Time `json:"creation_date"`
+	ModificationDate  time.Time `json:"modification_date"`
+	Folder            string    `json:"folder"`
+	Shared            bool      `json:"shared"`
+	PasswordProtected bool      `json:"password_protected"`
+}
+
+// Attachment represents a file attachment in a note
+type Attachment struct {
+	Name              string    `json:"name"`
+	FilePath          string    `json:"file_path"`
+	ContentIdentifier string    `json:"content_identifier"`
+	CreationDate      time.Time `json:"creation_date"`
+	ModificationDate  time.Time `json:"modification_date"`
+	ID                string    `json:"id"`
+}
+
+// FolderNode represents a folder in the hierarchical structure
+type FolderNode struct {
+	Name      string       `json:"name"`
+	Shared    bool         `json:"shared"`
+	Children  []FolderNode `json:"children,omitempty"`
+	NoteCount int          `json:"note_count"`
+}
+
+// SearchOptions contains parameters for advanced note search
+type SearchOptions struct {
+	Query    string
+	SearchIn string     // "title", "body", "both"
+	Folder   string     // optional: limit to folder
+	DateFrom *time.Time // optional: filter by date range
+	DateTo   *time.Time // optional: filter by date range
 }
 
 // AppleNotesService implements NotesService using AppleScript

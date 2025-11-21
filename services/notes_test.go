@@ -26,12 +26,17 @@ func (m *MockExecutor) Execute(ctx context.Context, script string) (string, stri
 func TestNoteJSONMarshaling(t *testing.T) {
 	now := time.Now()
 	note := Note{
-		ID:       "123456789",
-		Title:    "Test Note",
-		Content:  "Test content",
-		Tags:     []string{"tag1", "tag2"},
-		Created:  now,
-		Modified: now,
+		ID:                "123456789",
+		Title:             "Test Note",
+		Content:           "Test content",
+		Tags:              []string{"tag1", "tag2"},
+		Created:           now,
+		Modified:          now,
+		CreationDate:      now,
+		ModificationDate:  now,
+		Folder:            "Work",
+		Shared:            true,
+		PasswordProtected: false,
 	}
 
 	data, err := json.Marshal(note)
@@ -41,7 +46,12 @@ func TestNoteJSONMarshaling(t *testing.T) {
 
 	// Verify JSON contains expected fields
 	jsonStr := string(data)
-	expectedFields := []string{"\"id\"", "\"title\"", "\"content\"", "\"tags\"", "\"created\"", "\"modified\""}
+	expectedFields := []string{
+		"\"id\"", "\"title\"", "\"content\"", "\"tags\"",
+		"\"created\"", "\"modified\"",
+		"\"creation_date\"", "\"modification_date\"",
+		"\"folder\"", "\"shared\"", "\"password_protected\"",
+	}
 	for _, field := range expectedFields {
 		if !strings.Contains(jsonStr, field) {
 			t.Errorf("JSON missing expected field %s. Got: %s", field, jsonStr)
@@ -56,6 +66,187 @@ func TestNoteJSONMarshaling(t *testing.T) {
 
 	if decoded.ID != note.ID || decoded.Title != note.Title || decoded.Content != note.Content {
 		t.Errorf("Unmarshaled note doesn't match original")
+	}
+	if decoded.Folder != note.Folder {
+		t.Errorf("Unmarshaled folder = %q, want %q", decoded.Folder, note.Folder)
+	}
+	if decoded.Shared != note.Shared {
+		t.Errorf("Unmarshaled shared = %v, want %v", decoded.Shared, note.Shared)
+	}
+	if decoded.PasswordProtected != note.PasswordProtected {
+		t.Errorf("Unmarshaled password_protected = %v, want %v", decoded.PasswordProtected, note.PasswordProtected)
+	}
+}
+
+// TestAttachmentJSONMarshaling verifies Attachment struct has correct JSON tags
+func TestAttachmentJSONMarshaling(t *testing.T) {
+	now := time.Now()
+	attachment := Attachment{
+		Name:              "document.pdf",
+		FilePath:          "/Users/test/document.pdf",
+		ContentIdentifier: "x-coredata://12345",
+		CreationDate:      now,
+		ModificationDate:  now,
+		ID:                "att-123",
+	}
+
+	data, err := json.Marshal(attachment)
+	if err != nil {
+		t.Fatalf("Failed to marshal attachment: %v", err)
+	}
+
+	// Verify JSON contains expected fields
+	jsonStr := string(data)
+	expectedFields := []string{
+		"\"name\"", "\"file_path\"", "\"content_identifier\"",
+		"\"creation_date\"", "\"modification_date\"", "\"id\"",
+	}
+	for _, field := range expectedFields {
+		if !strings.Contains(jsonStr, field) {
+			t.Errorf("JSON missing expected field %s. Got: %s", field, jsonStr)
+		}
+	}
+
+	// Verify we can unmarshal back
+	var decoded Attachment
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatalf("Failed to unmarshal attachment: %v", err)
+	}
+
+	if decoded.Name != attachment.Name {
+		t.Errorf("Unmarshaled name = %q, want %q", decoded.Name, attachment.Name)
+	}
+	if decoded.FilePath != attachment.FilePath {
+		t.Errorf("Unmarshaled file_path = %q, want %q", decoded.FilePath, attachment.FilePath)
+	}
+	if decoded.ContentIdentifier != attachment.ContentIdentifier {
+		t.Errorf("Unmarshaled content_identifier = %q, want %q", decoded.ContentIdentifier, attachment.ContentIdentifier)
+	}
+}
+
+// TestFolderNodeJSONMarshaling verifies FolderNode struct has correct JSON tags
+func TestFolderNodeJSONMarshaling(t *testing.T) {
+	folder := FolderNode{
+		Name:      "Work",
+		Shared:    true,
+		NoteCount: 42,
+		Children: []FolderNode{
+			{
+				Name:      "Projects",
+				Shared:    false,
+				NoteCount: 15,
+				Children:  []FolderNode{},
+			},
+			{
+				Name:      "Archive",
+				Shared:    false,
+				NoteCount: 27,
+				Children:  nil,
+			},
+		},
+	}
+
+	data, err := json.Marshal(folder)
+	if err != nil {
+		t.Fatalf("Failed to marshal folder: %v", err)
+	}
+
+	// Verify JSON contains expected fields
+	jsonStr := string(data)
+	expectedFields := []string{
+		"\"name\"", "\"shared\"", "\"note_count\"", "\"children\"",
+	}
+	for _, field := range expectedFields {
+		if !strings.Contains(jsonStr, field) {
+			t.Errorf("JSON missing expected field %s. Got: %s", field, jsonStr)
+		}
+	}
+
+	// Verify we can unmarshal back
+	var decoded FolderNode
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatalf("Failed to unmarshal folder: %v", err)
+	}
+
+	if decoded.Name != folder.Name {
+		t.Errorf("Unmarshaled name = %q, want %q", decoded.Name, folder.Name)
+	}
+	if decoded.Shared != folder.Shared {
+		t.Errorf("Unmarshaled shared = %v, want %v", decoded.Shared, folder.Shared)
+	}
+	if decoded.NoteCount != folder.NoteCount {
+		t.Errorf("Unmarshaled note_count = %d, want %d", decoded.NoteCount, folder.NoteCount)
+	}
+	if len(decoded.Children) != 2 {
+		t.Fatalf("Expected 2 children, got %d", len(decoded.Children))
+	}
+	if decoded.Children[0].Name != "Projects" {
+		t.Errorf("First child name = %q, want %q", decoded.Children[0].Name, "Projects")
+	}
+}
+
+// TestSearchOptionsStructure verifies SearchOptions struct fields
+func TestSearchOptionsStructure(t *testing.T) {
+	dateFrom := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
+	dateTo := time.Date(2024, 12, 31, 23, 59, 59, 0, time.UTC)
+
+	opts := SearchOptions{
+		Query:    "meeting notes",
+		SearchIn: "both",
+		Folder:   "Work",
+		DateFrom: &dateFrom,
+		DateTo:   &dateTo,
+	}
+
+	// Verify all fields are accessible
+	if opts.Query != "meeting notes" {
+		t.Errorf("Query = %q, want %q", opts.Query, "meeting notes")
+	}
+	if opts.SearchIn != "both" {
+		t.Errorf("SearchIn = %q, want %q", opts.SearchIn, "both")
+	}
+	if opts.Folder != "Work" {
+		t.Errorf("Folder = %q, want %q", opts.Folder, "Work")
+	}
+	if opts.DateFrom == nil {
+		t.Fatal("DateFrom should not be nil")
+	}
+	if opts.DateTo == nil {
+		t.Fatal("DateTo should not be nil")
+	}
+	if !opts.DateFrom.Equal(dateFrom) {
+		t.Errorf("DateFrom = %v, want %v", opts.DateFrom, dateFrom)
+	}
+	if !opts.DateTo.Equal(dateTo) {
+		t.Errorf("DateTo = %v, want %v", opts.DateTo, dateTo)
+	}
+}
+
+// TestSearchOptionsNilDates verifies SearchOptions with nil date pointers
+func TestSearchOptionsNilDates(t *testing.T) {
+	opts := SearchOptions{
+		Query:    "test",
+		SearchIn: "title",
+		Folder:   "",
+		DateFrom: nil,
+		DateTo:   nil,
+	}
+
+	// Verify all fields are properly set
+	if opts.Query != "test" {
+		t.Errorf("Query = %q, want %q", opts.Query, "test")
+	}
+	if opts.SearchIn != "title" {
+		t.Errorf("SearchIn = %q, want %q", opts.SearchIn, "title")
+	}
+	if opts.Folder != "" {
+		t.Errorf("Folder = %q, want empty string", opts.Folder)
+	}
+	if opts.DateFrom != nil {
+		t.Error("DateFrom should be nil")
+	}
+	if opts.DateTo != nil {
+		t.Error("DateTo should be nil")
 	}
 }
 
