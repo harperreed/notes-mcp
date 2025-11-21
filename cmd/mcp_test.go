@@ -20,6 +20,7 @@ type mockNotesService struct {
 	getNoteContent  func(ctx context.Context, title string) (string, error)
 	updateNote      func(ctx context.Context, title, content string) error
 	deleteNote      func(ctx context.Context, title string) error
+	listFolders     func(ctx context.Context) ([]string, error)
 }
 
 func (m *mockNotesService) CreateNote(ctx context.Context, title, content string, tags []string) (*services.Note, error) {
@@ -55,6 +56,13 @@ func (m *mockNotesService) DeleteNote(ctx context.Context, title string) error {
 		return m.deleteNote(ctx, title)
 	}
 	return errors.New("not implemented")
+}
+
+func (m *mockNotesService) ListFolders(ctx context.Context) ([]string, error) {
+	if m.listFolders != nil {
+		return m.listFolders(ctx)
+	}
+	return nil, errors.New("not implemented")
 }
 
 // Test that createErrorResult properly converts service errors to user-friendly messages

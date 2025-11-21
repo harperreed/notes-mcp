@@ -1,5 +1,5 @@
 // ABOUTME: MCP server subcommand that starts the Model Context Protocol server
-// ABOUTME: Implements stdio-based MCP server with five tools: create_note, search_notes, get_note_content, update_note, delete_note
+// ABOUTME: Implements stdio-based MCP server with six tools: create_note, search_notes, get_note_content, update_note, delete_note, list_folders
 
 package cmd
 
@@ -73,6 +73,7 @@ func runMCPServer(cmd *cobra.Command, args []string) {
 	registerGetNoteContentTool(server, notesService)
 	registerUpdateNoteTool(server, notesService)
 	registerDeleteNoteTool(server, notesService)
+	registerListFoldersTool(server, notesService)
 
 	// Run the server over stdio transport
 	if err := server.Run(context.Background(), &mcp.StdioTransport{}); err != nil {
@@ -292,6 +293,51 @@ func registerDeleteNoteTool(server *mcp.Server, notesService services.NotesServi
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "delete_note",
 		Description: "Deletes a note from Apple Notes by its title. Returns confirmation of note deletion.",
+	}, handler)
+}
+
+// registerListFoldersTool registers the list_folders tool
+func registerListFoldersTool(server *mcp.Server, notesService services.NotesService) {
+	handler := func(ctx context.Context, req *mcp.CallToolRequest, input struct{}) (
+		*mcp.CallToolResult, any, error) {
+
+		// Create a context with timeout for the operation
+		opCtx, cancel := context.WithTimeout(ctx, getOperationTimeout())
+		defer cancel()
+
+		// Call the service
+		folders, err := notesService.ListFolders(opCtx)
+		if err != nil {
+			return createErrorResult(err), nil, nil
+		}
+
+		// Handle empty results
+		if len(folders) == 0 {
+			return &mcp.CallToolResult{
+				Content: []mcp.Content{
+					&mcp.TextContent{
+						Text: "No folders found.",
+					},
+				},
+			}, nil, nil
+		}
+
+		// Format the results as newline-separated list of folder names
+		result := strings.Join(folders, "\n")
+
+		// Return success result
+		return &mcp.CallToolResult{
+			Content: []mcp.Content{
+				&mcp.TextContent{
+					Text: result,
+				},
+			},
+		}, nil, nil
+	}
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "list_folders",
+		Description: "Lists all folders in Apple Notes. Returns a list of folder names, or a message if no folders are found.",
 	}, handler)
 }
 

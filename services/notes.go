@@ -26,6 +26,9 @@ type NotesService interface {
 
 	// DeleteNote deletes a note by title
 	DeleteNote(ctx context.Context, title string) error
+
+	// ListFolders lists all folders in Apple Notes
+	ListFolders(ctx context.Context) ([]string, error)
 }
 
 // Note represents a note entity
@@ -244,4 +247,44 @@ func (s *AppleNotesService) DeleteNote(ctx context.Context, title string) error 
 	_ = stdout
 
 	return nil
+}
+
+// ListFolders lists all folders in Apple Notes
+func (s *AppleNotesService) ListFolders(ctx context.Context) ([]string, error) {
+	// Generate AppleScript to list folders
+	script := fmt.Sprintf(`
+		tell application "Notes"
+			tell account "%s"
+				get name of folders
+			end tell
+		end tell
+	`, s.iCloudAccount)
+
+	// Execute the script
+	stdout, stderr, err := s.executor.Execute(ctx, script)
+	if err != nil {
+		// Detect and wrap the error
+		detectedErr := DetectError(ctx, stderr, err)
+		return []string{}, fmt.Errorf("failed to list folders: %w", detectedErr)
+	}
+
+	// If output is empty, return empty slice
+	stdout = strings.TrimSpace(stdout)
+	if stdout == "" {
+		return []string{}, nil
+	}
+
+	// Parse CSV output (AppleScript returns comma-separated list)
+	folders := strings.Split(stdout, ", ")
+	result := make([]string, 0, len(folders))
+
+	for _, folder := range folders {
+		folder = strings.TrimSpace(folder)
+		if folder == "" {
+			continue
+		}
+		result = append(result, folder)
+	}
+
+	return result, nil
 }

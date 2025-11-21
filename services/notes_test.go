@@ -555,3 +555,79 @@ func TestDeleteNoteNotFound(t *testing.T) {
 		t.Errorf("Expected error containing 'note not found', got %v", err)
 	}
 }
+
+// TestListFolders tests successful folder listing
+func TestListFolders(t *testing.T) {
+	executor := &MockExecutor{
+		stdout: "Notes, Work, Personal",
+		stderr: "",
+		err:    nil,
+	}
+
+	service := NewAppleNotesService(executor)
+	ctx := context.Background()
+
+	folders, err := service.ListFolders(ctx)
+	if err != nil {
+		t.Fatalf("ListFolders failed: %v", err)
+	}
+
+	if len(folders) != 3 {
+		t.Fatalf("Expected 3 folders, got %d", len(folders))
+	}
+
+	expectedFolders := []string{"Notes", "Work", "Personal"}
+	for i, folder := range folders {
+		if folder != expectedFolders[i] {
+			t.Errorf("Folder %d = %q, want %q", i, folder, expectedFolders[i])
+		}
+	}
+}
+
+// TestListFoldersEmpty tests empty folder list
+func TestListFoldersEmpty(t *testing.T) {
+	executor := &MockExecutor{
+		stdout: "",
+		stderr: "",
+		err:    nil,
+	}
+
+	service := NewAppleNotesService(executor)
+	ctx := context.Background()
+
+	folders, err := service.ListFolders(ctx)
+	if err != nil {
+		t.Fatalf("ListFolders failed: %v", err)
+	}
+
+	if len(folders) != 0 {
+		t.Errorf("Expected empty result, got %d folders", len(folders))
+	}
+}
+
+// TestListFoldersWithError tests error handling in folder listing
+func TestListFoldersWithError(t *testing.T) {
+	executor := &MockExecutor{
+		stdout: "",
+		stderr: "Apple Notes app not running",
+		err:    ErrNotesAppNotRunning,
+	}
+
+	service := NewAppleNotesService(executor)
+	ctx := context.Background()
+
+	folders, err := service.ListFolders(ctx)
+	if err == nil {
+		t.Fatal("Expected error, got nil")
+	}
+
+	// Verify error is detected correctly (unwrap the wrapped error)
+	if !strings.Contains(err.Error(), "Apple Notes app not running") {
+		t.Errorf("Expected error containing 'Apple Notes app not running', got %v", err)
+	}
+
+	// Should return empty folders on error
+	if len(folders) != 0 {
+		t.Errorf("Expected empty folders on error, got %d", len(folders))
+	}
+}
