@@ -4,11 +4,8 @@
 package cmd
 
 import (
-	"context"
 	"fmt"
-	"time"
 
-	"github.com/harper/notes-mcp/services"
 	"github.com/spf13/cobra"
 )
 
@@ -21,11 +18,10 @@ var searchCmd = &cobra.Command{
 		query := args[0]
 
 		// Create service with real executor
-		executor := services.NewOSAScriptExecutor(10 * time.Second)
-		notesService := services.NewAppleNotesService(executor)
+		notesService := newNotesService()
 
 		// Create context with timeout
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		ctx, cancel := newCommandContext()
 		defer cancel()
 
 		// Search for notes
