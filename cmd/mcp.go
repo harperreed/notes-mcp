@@ -16,9 +16,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// Default timeout for tool operations
-const defaultOperationTimeout = 30 * time.Second
-
 var mcpCmd = &cobra.Command{
 	Use:   "mcp",
 	Short: "Start the MCP server",
@@ -86,7 +83,7 @@ func registerCreateNoteTool(server *mcp.Server, notesService services.NotesServi
 		}
 
 		// Create a context with timeout for the operation
-		opCtx, cancel := context.WithTimeout(ctx, defaultOperationTimeout)
+		opCtx, cancel := context.WithTimeout(ctx, getOperationTimeout())
 		defer cancel()
 
 		// Call the service
@@ -122,7 +119,7 @@ func registerSearchNotesTool(server *mcp.Server, notesService services.NotesServ
 		}
 
 		// Create a context with timeout for the operation
-		opCtx, cancel := context.WithTimeout(ctx, defaultOperationTimeout)
+		opCtx, cancel := context.WithTimeout(ctx, getOperationTimeout())
 		defer cancel()
 
 		// Call the service
@@ -142,12 +139,23 @@ func registerSearchNotesTool(server *mcp.Server, notesService services.NotesServ
 			}, nil, nil
 		}
 
+		// Limit results to prevent timeouts with large result sets
+		totalNotes := len(notes)
+		if totalNotes > maxSearchResults {
+			notes = notes[:maxSearchResults]
+		}
+
 		// Format the results as newline-separated list of titles
 		var titles []string
 		for _, note := range notes {
 			titles = append(titles, note.Title)
 		}
 		result := strings.Join(titles, "\n")
+
+		// Add indicator if results were limited
+		if totalNotes > maxSearchResults {
+			result = fmt.Sprintf("%s\n\n(Showing first %d of %d matching notes)", result, maxSearchResults, totalNotes)
+		}
 
 		// Return success result
 		return &mcp.CallToolResult{
@@ -176,7 +184,7 @@ func registerGetNoteContentTool(server *mcp.Server, notesService services.NotesS
 		}
 
 		// Create a context with timeout for the operation
-		opCtx, cancel := context.WithTimeout(ctx, defaultOperationTimeout)
+		opCtx, cancel := context.WithTimeout(ctx, getOperationTimeout())
 		defer cancel()
 
 		// Call the service

@@ -55,11 +55,19 @@ Add to your Claude Desktop configuration:
   "mcpServers": {
     "apple-notes-go": {
       "command": "/path/to/notes-mcp/mcp-apple-notes-go",
-      "args": ["mcp"]
+      "args": ["mcp"],
+      "env": {
+        "NOTES_MCP_TIMEOUT": "60"
+      }
     }
   }
 }
 ```
+
+### Configuration Options
+
+- **NOTES_MCP_TIMEOUT**: Optional timeout in seconds for operations (default: 30). Increase if you have a large Notes database and experience timeouts during searches.
+- Search results are automatically limited to 100 notes to prevent timeouts with large result sets.
 
 ## Development
 

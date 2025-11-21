@@ -5,6 +5,8 @@ package cmd
 
 import (
 	"context"
+	"os"
+	"strconv"
 	"time"
 
 	"github.com/harper/notes-mcp/services"
@@ -16,7 +18,19 @@ const (
 	osascriptTimeout = 10 * time.Second
 	// commandTimeout is the timeout for the entire command execution
 	commandTimeout = 30 * time.Second
+	// maxSearchResults limits search results to prevent timeouts with large result sets
+	maxSearchResults = 100
 )
+
+// getOperationTimeout returns the operation timeout, checking NOTES_MCP_TIMEOUT env var first
+func getOperationTimeout() time.Duration {
+	if timeoutStr := os.Getenv("NOTES_MCP_TIMEOUT"); timeoutStr != "" {
+		if seconds, err := strconv.Atoi(timeoutStr); err == nil && seconds > 0 {
+			return time.Duration(seconds) * time.Second
+		}
+	}
+	return commandTimeout
+}
 
 // newNotesService creates an AppleNotesService with a configured OSAScriptExecutor
 func newNotesService() *services.AppleNotesService {

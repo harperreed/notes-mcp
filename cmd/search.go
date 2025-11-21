@@ -30,9 +30,20 @@ var searchCmd = &cobra.Command{
 			return fmt.Errorf("failed to search notes: %w", err)
 		}
 
+		// Limit results to prevent timeouts with large result sets
+		totalNotes := len(notes)
+		if totalNotes > maxSearchResults {
+			notes = notes[:maxSearchResults]
+		}
+
 		// Output newline-separated list of titles
 		for _, note := range notes {
 			fmt.Println(note.Title)
+		}
+
+		// Add indicator if results were limited
+		if totalNotes > maxSearchResults {
+			fmt.Fprintf(cmd.ErrOrStderr(), "\n(Showing first %d of %d matching notes)\n", maxSearchResults, totalNotes)
 		}
 
 		return nil
