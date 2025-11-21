@@ -31,7 +31,7 @@ brews:
       owner: harperreed
       name: homebrew-tap
       token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
-    folder: Formula
+    directory: Formula
     homepage: "https://github.com/harperreed/notes-mcp"
     description: "MCP server for Apple Notes with CLI tools"
     install: |
