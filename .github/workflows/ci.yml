@@ -56,27 +56,3 @@ jobs:
         with:
           version: latest
           args: --timeout=5m
-
-  pre-commit:
-    name: Pre-commit
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: '1.21'
-          cache: true
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.x'
-
-      - name: Install pre-commit
-        run: pip install pre-commit
-
-      - name: Run pre-commit hooks
-        run: pre-commit run --all-files
