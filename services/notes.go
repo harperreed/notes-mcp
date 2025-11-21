@@ -505,11 +505,17 @@ func (s *AppleNotesService) GetNoteMetadata(ctx context.Context, title string) (
 
 	// Generate AppleScript to get note metadata
 	// Returns a record with all metadata fields
+	// Use try/catch for container since it may not be immediately available for new notes
 	script := fmt.Sprintf(`
 		tell application "Notes"
 			tell account "%s"
 				set theNote to note "%s"
-				{id:(id of theNote as text), name:(name of theNote), creation date:(creation date of theNote), modification date:(modification date of theNote), container:(name of container of theNote), shared:(shared of theNote), password protected:(password protected of theNote)}
+				try
+					set containerName to name of container of theNote
+				on error
+					set containerName to ""
+				end try
+				{id:(id of theNote as text), name:(name of theNote), creation date:(creation date of theNote), modification date:(modification date of theNote), container:containerName, shared:(shared of theNote), password protected:(password protected of theNote)}
 			end tell
 		end tell
 	`, s.iCloudAccount, safeTitle)
