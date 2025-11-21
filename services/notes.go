@@ -42,6 +42,18 @@ type NotesService interface {
 	// GetNotesInFolder retrieves all notes in a specific folder
 	GetNotesInFolder(ctx context.Context, folder string) ([]Note, error)
 
+	// CreateFolder creates a new folder in Apple Notes
+	CreateFolder(ctx context.Context, name string, parentFolder string) error
+
+	// MoveNote moves a note to a different folder
+	MoveNote(ctx context.Context, noteTitle string, targetFolder string) error
+
+	// GetFolderHierarchy retrieves the complete folder hierarchy with note counts
+	GetFolderHierarchy(ctx context.Context) (*FolderNode, error)
+
+	// GetNoteAttachments retrieves all attachments for a note
+	GetNoteAttachments(ctx context.Context, noteTitle string) ([]Attachment, error)
+
 	// GetAttachmentContent retrieves the content of an attachment from its file path
 	GetAttachmentContent(ctx context.Context, filePath string, maxSize int64) ([]byte, error)
 

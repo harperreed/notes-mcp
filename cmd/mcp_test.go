@@ -24,6 +24,10 @@ type mockNotesService struct {
 	listFolders          func(ctx context.Context) ([]string, error)
 	getRecentNotes       func(ctx context.Context, limit int) ([]services.Note, error)
 	getNotesInFolder     func(ctx context.Context, folder string) ([]services.Note, error)
+	createFolder         func(ctx context.Context, name string, parentFolder string) error
+	moveNote             func(ctx context.Context, noteTitle string, targetFolder string) error
+	getFolderHierarchy   func(ctx context.Context) (*services.FolderNode, error)
+	getNoteAttachments   func(ctx context.Context, noteTitle string) ([]services.Attachment, error)
 	getAttachmentContent func(ctx context.Context, filePath string, maxSize int64) ([]byte, error)
 	exportNoteMarkdown   func(ctx context.Context, noteTitle string) (string, error)
 	exportNoteText       func(ctx context.Context, noteTitle string) (string, error)
@@ -88,6 +92,34 @@ func (m *mockNotesService) GetRecentNotes(ctx context.Context, limit int) ([]ser
 func (m *mockNotesService) GetNotesInFolder(ctx context.Context, folder string) ([]services.Note, error) {
 	if m.getNotesInFolder != nil {
 		return m.getNotesInFolder(ctx, folder)
+	}
+	return nil, errors.New("not implemented")
+}
+
+func (m *mockNotesService) CreateFolder(ctx context.Context, name string, parentFolder string) error {
+	if m.createFolder != nil {
+		return m.createFolder(ctx, name, parentFolder)
+	}
+	return errors.New("not implemented")
+}
+
+func (m *mockNotesService) MoveNote(ctx context.Context, noteTitle string, targetFolder string) error {
+	if m.moveNote != nil {
+		return m.moveNote(ctx, noteTitle, targetFolder)
+	}
+	return errors.New("not implemented")
+}
+
+func (m *mockNotesService) GetFolderHierarchy(ctx context.Context) (*services.FolderNode, error) {
+	if m.getFolderHierarchy != nil {
+		return m.getFolderHierarchy(ctx)
+	}
+	return nil, errors.New("not implemented")
+}
+
+func (m *mockNotesService) GetNoteAttachments(ctx context.Context, noteTitle string) ([]services.Attachment, error) {
+	if m.getNoteAttachments != nil {
+		return m.getNoteAttachments(ctx, noteTitle)
 	}
 	return nil, errors.New("not implemented")
 }
@@ -693,4 +725,148 @@ func TestRegisterPromptsIntegration(t *testing.T) {
 	registerPrompts(server, mock)
 
 	// If we get here without panic, registration succeeded
+}
+
+// TestRegisterCreateFolderTool tests the create_folder tool registration
+func TestRegisterCreateFolderTool(t *testing.T) {
+	mock := &mockNotesService{
+		createFolder: func(ctx context.Context, name string, parentFolder string) error {
+			return nil
+		},
+	}
+	server := mcp.NewServer(&mcp.Implementation{Name: "test", Version: "1.0.0"}, nil)
+
+	registerCreateFolderTool(server, mock)
+	// If we get here without panic, registration succeeded
+}
+
+// TestRegisterMoveNoteTool tests the move_note tool registration
+func TestRegisterMoveNoteTool(t *testing.T) {
+	mock := &mockNotesService{
+		moveNote: func(ctx context.Context, noteTitle string, targetFolder string) error {
+			return nil
+		},
+	}
+	server := mcp.NewServer(&mcp.Implementation{Name: "test", Version: "1.0.0"}, nil)
+
+	registerMoveNoteTool(server, mock)
+	// If we get here without panic, registration succeeded
+}
+
+// TestRegisterGetFolderHierarchyTool tests the get_folder_hierarchy tool registration
+func TestRegisterGetFolderHierarchyTool(t *testing.T) {
+	mock := &mockNotesService{
+		getFolderHierarchy: func(ctx context.Context) (*services.FolderNode, error) {
+			return &services.FolderNode{
+				Name:      "Root",
+				NoteCount: 5,
+				Children: []services.FolderNode{
+					{Name: "Child1", NoteCount: 2},
+					{Name: "Child2", NoteCount: 3},
+				},
+			}, nil
+		},
+	}
+	server := mcp.NewServer(&mcp.Implementation{Name: "test", Version: "1.0.0"}, nil)
+
+	registerGetFolderHierarchyTool(server, mock)
+	// If we get here without panic, registration succeeded
+}
+
+// TestRegisterSearchNotesAdvancedTool tests the search_notes_advanced tool registration
+func TestRegisterSearchNotesAdvancedTool(t *testing.T) {
+	mock := &mockNotesService{
+		searchNotesAdvanced: func(ctx context.Context, opts services.SearchOptions) ([]services.Note, error) {
+			return []services.Note{
+				{Title: "Advanced Note 1"},
+				{Title: "Advanced Note 2"},
+			}, nil
+		},
+	}
+	server := mcp.NewServer(&mcp.Implementation{Name: "test", Version: "1.0.0"}, nil)
+
+	registerSearchNotesAdvancedTool(server, mock)
+	// If we get here without panic, registration succeeded
+}
+
+// TestRegisterGetNoteAttachmentsTool tests the get_note_attachments tool registration
+func TestRegisterGetNoteAttachmentsTool(t *testing.T) {
+	mock := &mockNotesService{
+		getNoteAttachments: func(ctx context.Context, noteTitle string) ([]services.Attachment, error) {
+			return []services.Attachment{
+				{
+					Name:     "file1.pdf",
+					FilePath: "/path/to/file1.pdf",
+					ID:       "123",
+				},
+			}, nil
+		},
+	}
+	server := mcp.NewServer(&mcp.Implementation{Name: "test", Version: "1.0.0"}, nil)
+
+	registerGetNoteAttachmentsTool(server, mock)
+	// If we get here without panic, registration succeeded
+}
+
+// TestRegisterGetAttachmentContentTool tests the get_attachment_content tool registration
+func TestRegisterGetAttachmentContentTool(t *testing.T) {
+	mock := &mockNotesService{
+		getAttachmentContent: func(ctx context.Context, filePath string, maxSize int64) ([]byte, error) {
+			return []byte("test content"), nil
+		},
+	}
+	server := mcp.NewServer(&mcp.Implementation{Name: "test", Version: "1.0.0"}, nil)
+
+	registerGetAttachmentContentTool(server, mock)
+	// If we get here without panic, registration succeeded
+}
+
+// TestRegisterExportNoteMarkdownTool tests the export_note_markdown tool registration
+func TestRegisterExportNoteMarkdownTool(t *testing.T) {
+	mock := &mockNotesService{
+		exportNoteMarkdown: func(ctx context.Context, noteTitle string) (string, error) {
+			return "# Markdown Content", nil
+		},
+	}
+	server := mcp.NewServer(&mcp.Implementation{Name: "test", Version: "1.0.0"}, nil)
+
+	registerExportNoteMarkdownTool(server, mock)
+	// If we get here without panic, registration succeeded
+}
+
+// TestRegisterExportNoteTextTool tests the export_note_text tool registration
+func TestRegisterExportNoteTextTool(t *testing.T) {
+	mock := &mockNotesService{
+		exportNoteText: func(ctx context.Context, noteTitle string) (string, error) {
+			return "Plain text content", nil
+		},
+	}
+	server := mcp.NewServer(&mcp.Implementation{Name: "test", Version: "1.0.0"}, nil)
+
+	registerExportNoteTextTool(server, mock)
+	// If we get here without panic, registration succeeded
+}
+
+// TestAllToolsRegistrationIntegration tests that all tools can be registered together
+func TestAllToolsRegistrationIntegration(t *testing.T) {
+	mock := &mockNotesService{}
+	server := mcp.NewServer(&mcp.Implementation{Name: "test", Version: "1.0.0"}, nil)
+
+	// Register all tools (original 6 + new 8 = 14 total)
+	registerCreateNoteTool(server, mock)
+	registerSearchNotesTool(server, mock)
+	registerGetNoteContentTool(server, mock)
+	registerUpdateNoteTool(server, mock)
+	registerDeleteNoteTool(server, mock)
+	registerListFoldersTool(server, mock)
+	registerCreateFolderTool(server, mock)
+	registerMoveNoteTool(server, mock)
+	registerGetFolderHierarchyTool(server, mock)
+	registerSearchNotesAdvancedTool(server, mock)
+	registerGetNoteAttachmentsTool(server, mock)
+	registerGetAttachmentContentTool(server, mock)
+	registerExportNoteMarkdownTool(server, mock)
+	registerExportNoteTextTool(server, mock)
+
+	// If we get here without panic, all registrations succeeded
 }

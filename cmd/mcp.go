@@ -5,6 +5,8 @@ package cmd
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
@@ -52,6 +54,41 @@ type DeleteNoteArgs struct {
 	Title string `json:"title" jsonschema:"The title of the note to delete"`
 }
 
+type CreateFolderArgs struct {
+	Name         string `json:"name" jsonschema:"The name of the folder to create"`
+	ParentFolder string `json:"parent_folder,omitempty" jsonschema:"Optional parent folder name for nested folders"`
+}
+
+type MoveNoteArgs struct {
+	NoteTitle    string `json:"note_title" jsonschema:"The title of the note to move"`
+	TargetFolder string `json:"target_folder" jsonschema:"The target folder to move the note to"`
+}
+
+type SearchNotesAdvancedArgs struct {
+	Query    string `json:"query" jsonschema:"The search query"`
+	SearchIn string `json:"search_in,omitempty" jsonschema:"Where to search: 'title', 'body', or 'both' (default: 'title')"`
+	Folder   string `json:"folder,omitempty" jsonschema:"Optional folder name to limit search scope"`
+	DateFrom string `json:"date_from,omitempty" jsonschema:"Optional start date filter (YYYY-MM-DD format)"`
+	DateTo   string `json:"date_to,omitempty" jsonschema:"Optional end date filter (YYYY-MM-DD format)"`
+}
+
+type GetNoteAttachmentsArgs struct {
+	NoteTitle string `json:"note_title" jsonschema:"The title of the note to get attachments from"`
+}
+
+type GetAttachmentContentArgs struct {
+	FilePath  string `json:"file_path" jsonschema:"The file path of the attachment to retrieve"`
+	MaxSizeMB int    `json:"max_size_mb,omitempty" jsonschema:"Maximum file size in MB (default: 10)"`
+}
+
+type ExportNoteMarkdownArgs struct {
+	NoteTitle string `json:"note_title" jsonschema:"The title of the note to export as markdown"`
+}
+
+type ExportNoteTextArgs struct {
+	NoteTitle string `json:"note_title" jsonschema:"The title of the note to export as plain text"`
+}
+
 // runMCPServer starts the MCP server in stdio mode
 func runMCPServer(cmd *cobra.Command, args []string) {
 	// Create the notes service
@@ -74,6 +111,14 @@ func runMCPServer(cmd *cobra.Command, args []string) {
 	registerUpdateNoteTool(server, notesService)
 	registerDeleteNoteTool(server, notesService)
 	registerListFoldersTool(server, notesService)
+	registerCreateFolderTool(server, notesService)
+	registerMoveNoteTool(server, notesService)
+	registerGetFolderHierarchyTool(server, notesService)
+	registerSearchNotesAdvancedTool(server, notesService)
+	registerGetNoteAttachmentsTool(server, notesService)
+	registerGetAttachmentContentTool(server, notesService)
+	registerExportNoteMarkdownTool(server, notesService)
+	registerExportNoteTextTool(server, notesService)
 
 	// Register resources
 	registerResources(server, notesService)
@@ -344,6 +389,408 @@ func registerListFoldersTool(server *mcp.Server, notesService services.NotesServ
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "list_folders",
 		Description: "Lists all folders in Apple Notes. Returns a list of folder names, or a message if no folders are found.",
+	}, handler)
+}
+
+// registerCreateFolderTool registers the create_folder tool
+func registerCreateFolderTool(server *mcp.Server, notesService services.NotesService) {
+	handler := func(ctx context.Context, req *mcp.CallToolRequest, input CreateFolderArgs) (
+		*mcp.CallToolResult, any, error) {
+
+		// Validate required fields
+		if input.Name == "" {
+			return nil, nil, fmt.Errorf("%w: name is required", services.ErrInvalidInput)
+		}
+
+		// Create a context with timeout for the operation
+		opCtx, cancel := context.WithTimeout(ctx, getOperationTimeout())
+		defer cancel()
+
+		// Call the service
+		err := notesService.CreateFolder(opCtx, input.Name, input.ParentFolder)
+		if err != nil {
+			return createErrorResult(err), nil, nil
+		}
+
+		// Format success message
+		var message string
+		if input.ParentFolder == "" {
+			message = fmt.Sprintf("Folder created: %s", input.Name)
+		} else {
+			message = fmt.Sprintf("Folder created: %s (in %s)", input.Name, input.ParentFolder)
+		}
+
+		// Return success result
+		return &mcp.CallToolResult{
+			Content: []mcp.Content{
+				&mcp.TextContent{
+					Text: message,
+				},
+			},
+		}, nil, nil
+	}
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "create_folder",
+		Description: "Creates a new folder in Apple Notes. Can create at root level or nested under a parent folder.",
+	}, handler)
+}
+
+// registerMoveNoteTool registers the move_note tool
+func registerMoveNoteTool(server *mcp.Server, notesService services.NotesService) {
+	handler := func(ctx context.Context, req *mcp.CallToolRequest, input MoveNoteArgs) (
+		*mcp.CallToolResult, any, error) {
+
+		// Validate required fields
+		if input.NoteTitle == "" {
+			return nil, nil, fmt.Errorf("%w: note_title is required", services.ErrInvalidInput)
+		}
+		if input.TargetFolder == "" {
+			return nil, nil, fmt.Errorf("%w: target_folder is required", services.ErrInvalidInput)
+		}
+
+		// Create a context with timeout for the operation
+		opCtx, cancel := context.WithTimeout(ctx, getOperationTimeout())
+		defer cancel()
+
+		// Call the service
+		err := notesService.MoveNote(opCtx, input.NoteTitle, input.TargetFolder)
+		if err != nil {
+			return createErrorResult(err), nil, nil
+		}
+
+		// Return success result
+		return &mcp.CallToolResult{
+			Content: []mcp.Content{
+				&mcp.TextContent{
+					Text: fmt.Sprintf("Note '%s' moved to folder '%s'", input.NoteTitle, input.TargetFolder),
+				},
+			},
+		}, nil, nil
+	}
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "move_note",
+		Description: "Moves a note to a different folder in Apple Notes. Returns confirmation of note movement.",
+	}, handler)
+}
+
+// registerGetFolderHierarchyTool registers the get_folder_hierarchy tool
+func registerGetFolderHierarchyTool(server *mcp.Server, notesService services.NotesService) {
+	handler := func(ctx context.Context, req *mcp.CallToolRequest, input struct{}) (
+		*mcp.CallToolResult, any, error) {
+
+		// Create a context with timeout for the operation
+		opCtx, cancel := context.WithTimeout(ctx, getOperationTimeout())
+		defer cancel()
+
+		// Call the service
+		hierarchy, err := notesService.GetFolderHierarchy(opCtx)
+		if err != nil {
+			return createErrorResult(err), nil, nil
+		}
+
+		// Marshal to JSON for structured output
+		hierarchyJSON, err := json.MarshalIndent(hierarchy, "", "  ")
+		if err != nil {
+			return createErrorResult(fmt.Errorf("failed to format hierarchy: %w", err)), nil, nil
+		}
+
+		// Return success result
+		return &mcp.CallToolResult{
+			Content: []mcp.Content{
+				&mcp.TextContent{
+					Text: string(hierarchyJSON),
+				},
+			},
+		}, nil, nil
+	}
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "get_folder_hierarchy",
+		Description: "Retrieves the complete folder hierarchy from Apple Notes with note counts. Returns nested folder structure as JSON.",
+	}, handler)
+}
+
+// parseDateFilter parses a date string in YYYY-MM-DD format
+// Returns nil pointer and nil error when dateStr is empty (valid case for optional dates)
+func parseDateFilter(dateStr string) (*time.Time, error) {
+	if dateStr == "" {
+		var nilTime *time.Time
+		return nilTime, nil
+	}
+	t, err := time.Parse("2006-01-02", dateStr)
+	if err != nil {
+		return nil, fmt.Errorf("%w: invalid date format, use YYYY-MM-DD", services.ErrInvalidInput)
+	}
+	return &t, nil
+}
+
+// formatSearchResults formats notes as JSON with optional result limiting message
+func formatSearchResults(notes []services.Note, totalNotes int) (string, error) {
+	notesJSON, err := json.MarshalIndent(notes, "", "  ")
+	if err != nil {
+		return "", fmt.Errorf("failed to format results: %w", err)
+	}
+
+	result := string(notesJSON)
+	if totalNotes > maxSearchResults {
+		result = fmt.Sprintf("%s\n\n(Showing first %d of %d matching notes)", result, maxSearchResults, totalNotes)
+	}
+	return result, nil
+}
+
+// registerSearchNotesAdvancedTool registers the search_notes_advanced tool
+func registerSearchNotesAdvancedTool(server *mcp.Server, notesService services.NotesService) {
+	handler := func(ctx context.Context, req *mcp.CallToolRequest, input SearchNotesAdvancedArgs) (
+		*mcp.CallToolResult, any, error) {
+
+		// Validate required fields
+		if input.Query == "" {
+			return nil, nil, fmt.Errorf("%w: query is required", services.ErrInvalidInput)
+		}
+
+		// Set defaults
+		if input.SearchIn == "" {
+			input.SearchIn = "title"
+		}
+
+		// Parse date filters
+		dateFrom, err := parseDateFilter(input.DateFrom)
+		if err != nil {
+			return nil, nil, err
+		}
+		dateTo, err := parseDateFilter(input.DateTo)
+		if err != nil {
+			return nil, nil, err
+		}
+
+		// Create search options
+		opts := services.SearchOptions{
+			Query:    input.Query,
+			SearchIn: input.SearchIn,
+			Folder:   input.Folder,
+			DateFrom: dateFrom,
+			DateTo:   dateTo,
+		}
+
+		// Create a context with timeout for the operation
+		opCtx, cancel := context.WithTimeout(ctx, getOperationTimeout())
+		defer cancel()
+
+		// Call the service
+		notes, err := notesService.SearchNotesAdvanced(opCtx, opts)
+		if err != nil {
+			return createErrorResult(err), nil, nil
+		}
+
+		// Handle empty results
+		if len(notes) == 0 {
+			return &mcp.CallToolResult{
+				Content: []mcp.Content{
+					&mcp.TextContent{
+						Text: "No notes found matching the search criteria.",
+					},
+				},
+			}, nil, nil
+		}
+
+		// Limit results to prevent timeouts with large result sets
+		totalNotes := len(notes)
+		if totalNotes > maxSearchResults {
+			notes = notes[:maxSearchResults]
+		}
+
+		// Format results with metadata
+		result, err := formatSearchResults(notes, totalNotes)
+		if err != nil {
+			return createErrorResult(err), nil, nil
+		}
+
+		// Return success result
+		return &mcp.CallToolResult{
+			Content: []mcp.Content{
+				&mcp.TextContent{
+					Text: result,
+				},
+			},
+		}, nil, nil
+	}
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "search_notes_advanced",
+		Description: "Searches for notes with advanced filters including body search, folder filtering, and date ranges. Returns notes with full metadata as JSON.",
+	}, handler)
+}
+
+// registerGetNoteAttachmentsTool registers the get_note_attachments tool
+func registerGetNoteAttachmentsTool(server *mcp.Server, notesService services.NotesService) {
+	handler := func(ctx context.Context, req *mcp.CallToolRequest, input GetNoteAttachmentsArgs) (
+		*mcp.CallToolResult, any, error) {
+
+		// Validate required fields
+		if input.NoteTitle == "" {
+			return nil, nil, fmt.Errorf("%w: note_title is required", services.ErrInvalidInput)
+		}
+
+		// Create a context with timeout for the operation
+		opCtx, cancel := context.WithTimeout(ctx, getOperationTimeout())
+		defer cancel()
+
+		// Call the service
+		attachments, err := notesService.GetNoteAttachments(opCtx, input.NoteTitle)
+		if err != nil {
+			return createErrorResult(err), nil, nil
+		}
+
+		// Handle empty results
+		if len(attachments) == 0 {
+			return &mcp.CallToolResult{
+				Content: []mcp.Content{
+					&mcp.TextContent{
+						Text: fmt.Sprintf("Note '%s' has no attachments.", input.NoteTitle),
+					},
+				},
+			}, nil, nil
+		}
+
+		// Marshal to JSON for structured output
+		attachmentsJSON, err := json.MarshalIndent(attachments, "", "  ")
+		if err != nil {
+			return createErrorResult(fmt.Errorf("failed to format attachments: %w", err)), nil, nil
+		}
+
+		// Return success result
+		return &mcp.CallToolResult{
+			Content: []mcp.Content{
+				&mcp.TextContent{
+					Text: string(attachmentsJSON),
+				},
+			},
+		}, nil, nil
+	}
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "get_note_attachments",
+		Description: "Retrieves all attachments for a note in Apple Notes. Returns attachment metadata including file paths as JSON.",
+	}, handler)
+}
+
+// registerGetAttachmentContentTool registers the get_attachment_content tool
+func registerGetAttachmentContentTool(server *mcp.Server, notesService services.NotesService) {
+	handler := func(ctx context.Context, req *mcp.CallToolRequest, input GetAttachmentContentArgs) (
+		*mcp.CallToolResult, any, error) {
+
+		// Validate required fields
+		if input.FilePath == "" {
+			return nil, nil, fmt.Errorf("%w: file_path is required", services.ErrInvalidInput)
+		}
+
+		// Set default max size to 10MB
+		maxSizeMB := input.MaxSizeMB
+		if maxSizeMB <= 0 {
+			maxSizeMB = 10
+		}
+		maxSizeBytes := int64(maxSizeMB) * 1024 * 1024
+
+		// Create a context with timeout for the operation
+		opCtx, cancel := context.WithTimeout(ctx, getOperationTimeout())
+		defer cancel()
+
+		// Call the service
+		content, err := notesService.GetAttachmentContent(opCtx, input.FilePath, maxSizeBytes)
+		if err != nil {
+			return createErrorResult(err), nil, nil
+		}
+
+		// Base64 encode the content
+		encoded := base64.StdEncoding.EncodeToString(content)
+
+		// Return success result with base64-encoded content
+		return &mcp.CallToolResult{
+			Content: []mcp.Content{
+				&mcp.TextContent{
+					Text: encoded,
+				},
+			},
+		}, nil, nil
+	}
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "get_attachment_content",
+		Description: "Retrieves the content of an attachment from Apple Notes. Returns base64-encoded content. Limited by max_size_mb parameter (default: 10MB).",
+	}, handler)
+}
+
+// registerExportNoteMarkdownTool registers the export_note_markdown tool
+func registerExportNoteMarkdownTool(server *mcp.Server, notesService services.NotesService) {
+	handler := func(ctx context.Context, req *mcp.CallToolRequest, input ExportNoteMarkdownArgs) (
+		*mcp.CallToolResult, any, error) {
+
+		// Validate required fields
+		if input.NoteTitle == "" {
+			return nil, nil, fmt.Errorf("%w: note_title is required", services.ErrInvalidInput)
+		}
+
+		// Create a context with timeout for the operation
+		opCtx, cancel := context.WithTimeout(ctx, getOperationTimeout())
+		defer cancel()
+
+		// Call the service
+		markdown, err := notesService.ExportNoteMarkdown(opCtx, input.NoteTitle)
+		if err != nil {
+			return createErrorResult(err), nil, nil
+		}
+
+		// Return success result
+		return &mcp.CallToolResult{
+			Content: []mcp.Content{
+				&mcp.TextContent{
+					Text: markdown,
+				},
+			},
+		}, nil, nil
+	}
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "export_note_markdown",
+		Description: "Exports a note from Apple Notes as markdown format. Returns the note content converted to markdown.",
+	}, handler)
+}
+
+// registerExportNoteTextTool registers the export_note_text tool
+func registerExportNoteTextTool(server *mcp.Server, notesService services.NotesService) {
+	handler := func(ctx context.Context, req *mcp.CallToolRequest, input ExportNoteTextArgs) (
+		*mcp.CallToolResult, any, error) {
+
+		// Validate required fields
+		if input.NoteTitle == "" {
+			return nil, nil, fmt.Errorf("%w: note_title is required", services.ErrInvalidInput)
+		}
+
+		// Create a context with timeout for the operation
+		opCtx, cancel := context.WithTimeout(ctx, getOperationTimeout())
+		defer cancel()
+
+		// Call the service
+		plainText, err := notesService.ExportNoteText(opCtx, input.NoteTitle)
+		if err != nil {
+			return createErrorResult(err), nil, nil
+		}
+
+		// Return success result
+		return &mcp.CallToolResult{
+			Content: []mcp.Content{
+				&mcp.TextContent{
+					Text: plainText,
+				},
+			},
+		}, nil, nil
+	}
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "export_note_text",
+		Description: "Exports a note from Apple Notes as plain text. Returns the note content as plain text without formatting.",
 	}, handler)
 }
 
