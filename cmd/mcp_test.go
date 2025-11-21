@@ -21,6 +21,8 @@ type mockNotesService struct {
 	updateNote      func(ctx context.Context, title, content string) error
 	deleteNote      func(ctx context.Context, title string) error
 	listFolders     func(ctx context.Context) ([]string, error)
+	getRecentNotes  func(ctx context.Context, limit int) ([]services.Note, error)
+	getNotesInFolder func(ctx context.Context, folder string) ([]services.Note, error)
 }
 
 func (m *mockNotesService) CreateNote(ctx context.Context, title, content string, tags []string) (*services.Note, error) {
@@ -61,6 +63,20 @@ func (m *mockNotesService) DeleteNote(ctx context.Context, title string) error {
 func (m *mockNotesService) ListFolders(ctx context.Context) ([]string, error) {
 	if m.listFolders != nil {
 		return m.listFolders(ctx)
+	}
+	return nil, errors.New("not implemented")
+}
+
+func (m *mockNotesService) GetRecentNotes(ctx context.Context, limit int) ([]services.Note, error) {
+	if m.getRecentNotes != nil {
+		return m.getRecentNotes(ctx, limit)
+	}
+	return nil, errors.New("not implemented")
+}
+
+func (m *mockNotesService) GetNotesInFolder(ctx context.Context, folder string) ([]services.Note, error) {
+	if m.getNotesInFolder != nil {
+		return m.getNotesInFolder(ctx, folder)
 	}
 	return nil, errors.New("not implemented")
 }
@@ -162,5 +178,289 @@ func TestMockServiceIntegration(t *testing.T) {
 
 	if note.Title != "Test" {
 		t.Errorf("expected title 'Test', got %q", note.Title)
+	}
+}
+
+// TestNoteResourceHandler tests the note:///{title} resource handler
+func TestNoteResourceHandler(t *testing.T) {
+	tests := []struct {
+		name           string
+		uri            string
+		mockContent    string
+		mockError      error
+		expectError    bool
+		expectNotFound bool
+	}{
+		{
+			name:        "successful note retrieval",
+			uri:         "note:///Test%20Note",
+			mockContent: "<div>Test content</div>",
+			mockError:   nil,
+			expectError: false,
+		},
+		{
+			name:           "note not found",
+			uri:            "note:///Nonexistent",
+			mockError:      services.ErrNoteNotFound,
+			expectError:    true,
+			expectNotFound: true,
+		},
+		{
+			name:        "invalid URI format",
+			uri:         "invalid://test",
+			expectError: true,
+		},
+		{
+			name:        "empty title",
+			uri:         "note:///",
+			expectError: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mock := &mockNotesService{
+				getNoteContent: func(ctx context.Context, title string) (string, error) {
+					if tt.mockError != nil {
+						return "", tt.mockError
+					}
+					return tt.mockContent, nil
+				},
+			}
+
+			handler := createNoteResourceHandler(mock)
+			result, err := handler(context.Background(), &mcp.ReadResourceRequest{
+				Params: &mcp.ReadResourceParams{URI: tt.uri},
+			})
+
+			if tt.expectError {
+				if err == nil {
+					t.Errorf("expected error, got nil")
+				}
+				return
+			}
+
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+
+			if len(result.Contents) != 1 {
+				t.Fatalf("expected 1 content item, got %d", len(result.Contents))
+			}
+
+			if result.Contents[0].Text != tt.mockContent {
+				t.Errorf("expected content %q, got %q", tt.mockContent, result.Contents[0].Text)
+			}
+
+			if result.Contents[0].MIMEType != "text/html" {
+				t.Errorf("expected MIME type 'text/html', got %q", result.Contents[0].MIMEType)
+			}
+		})
+	}
+}
+
+// TestRecentNotesResourceHandler tests the notes:///recent resource handler
+func TestRecentNotesResourceHandler(t *testing.T) {
+	tests := []struct {
+		name        string
+		mockNotes   []services.Note
+		mockError   error
+		expectError bool
+		expectText  string
+	}{
+		{
+			name: "successful recent notes retrieval",
+			mockNotes: []services.Note{
+				{Title: "Note 1"},
+				{Title: "Note 2"},
+				{Title: "Note 3"},
+			},
+			expectText: "Note 1\nNote 2\nNote 3",
+		},
+		{
+			name:       "no notes found",
+			mockNotes:  []services.Note{},
+			expectText: "No notes found.",
+		},
+		{
+			name:        "service error",
+			mockError:   errors.New("service error"),
+			expectError: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mock := &mockNotesService{
+				getRecentNotes: func(ctx context.Context, limit int) ([]services.Note, error) {
+					if tt.mockError != nil {
+						return nil, tt.mockError
+					}
+					return tt.mockNotes, nil
+				},
+			}
+
+			handler := createRecentNotesResourceHandler(mock)
+			result, err := handler(context.Background(), &mcp.ReadResourceRequest{
+				Params: &mcp.ReadResourceParams{URI: "notes:///recent"},
+			})
+
+			if tt.expectError {
+				if err == nil {
+					t.Errorf("expected error, got nil")
+				}
+				return
+			}
+
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+
+			if result.Contents[0].Text != tt.expectText {
+				t.Errorf("expected text %q, got %q", tt.expectText, result.Contents[0].Text)
+			}
+		})
+	}
+}
+
+// TestSearchNotesResourceHandler tests the notes:///search/{query} resource handler
+func TestSearchNotesResourceHandler(t *testing.T) {
+	tests := []struct {
+		name        string
+		uri         string
+		mockNotes   []services.Note
+		mockError   error
+		expectError bool
+		expectText  string
+	}{
+		{
+			name: "successful search",
+			uri:  "notes:///search/test",
+			mockNotes: []services.Note{
+				{Title: "Test Note 1"},
+				{Title: "Test Note 2"},
+			},
+			expectText: "Test Note 1\nTest Note 2",
+		},
+		{
+			name:       "no results",
+			uri:        "notes:///search/nonexistent",
+			mockNotes:  []services.Note{},
+			expectText: "No notes found matching the query.",
+		},
+		{
+			name:        "empty query",
+			uri:         "notes:///search/",
+			expectError: true,
+		},
+		{
+			name:        "invalid URI",
+			uri:         "invalid:///search/test",
+			expectError: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mock := &mockNotesService{
+				searchNotes: func(ctx context.Context, query string) ([]services.Note, error) {
+					if tt.mockError != nil {
+						return nil, tt.mockError
+					}
+					return tt.mockNotes, nil
+				},
+			}
+
+			handler := createSearchNotesResourceHandler(mock)
+			result, err := handler(context.Background(), &mcp.ReadResourceRequest{
+				Params: &mcp.ReadResourceParams{URI: tt.uri},
+			})
+
+			if tt.expectError {
+				if err == nil {
+					t.Errorf("expected error, got nil")
+				}
+				return
+			}
+
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+
+			if result.Contents[0].Text != tt.expectText {
+				t.Errorf("expected text %q, got %q", tt.expectText, result.Contents[0].Text)
+			}
+		})
+	}
+}
+
+// TestFolderNotesResourceHandler tests the notes:///folder/{folder} resource handler
+func TestFolderNotesResourceHandler(t *testing.T) {
+	tests := []struct {
+		name        string
+		uri         string
+		mockNotes   []services.Note
+		mockError   error
+		expectError bool
+		expectText  string
+	}{
+		{
+			name: "successful folder notes retrieval",
+			uri:  "notes:///folder/Work",
+			mockNotes: []services.Note{
+				{Title: "Work Note 1"},
+				{Title: "Work Note 2"},
+			},
+			expectText: "Work Note 1\nWork Note 2",
+		},
+		{
+			name:       "empty folder",
+			uri:        "notes:///folder/Empty",
+			mockNotes:  []services.Note{},
+			expectText: "No notes found in folder 'Empty'.",
+		},
+		{
+			name:        "empty folder name",
+			uri:         "notes:///folder/",
+			expectError: true,
+		},
+		{
+			name:        "invalid URI",
+			uri:         "invalid:///folder/Work",
+			expectError: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mock := &mockNotesService{
+				getNotesInFolder: func(ctx context.Context, folder string) ([]services.Note, error) {
+					if tt.mockError != nil {
+						return nil, tt.mockError
+					}
+					return tt.mockNotes, nil
+				},
+			}
+
+			handler := createFolderNotesResourceHandler(mock)
+			result, err := handler(context.Background(), &mcp.ReadResourceRequest{
+				Params: &mcp.ReadResourceParams{URI: tt.uri},
+			})
+
+			if tt.expectError {
+				if err == nil {
+					t.Errorf("expected error, got nil")
+				}
+				return
+			}
+
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+
+			if result.Contents[0].Text != tt.expectText {
+				t.Errorf("expected text %q, got %q", tt.expectText, result.Contents[0].Text)
+			}
+		})
 	}
 }

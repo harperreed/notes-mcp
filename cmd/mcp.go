@@ -1,5 +1,5 @@
 // ABOUTME: MCP server subcommand that starts the Model Context Protocol server
-// ABOUTME: Implements stdio-based MCP server with six tools: create_note, search_notes, get_note_content, update_note, delete_note, list_folders
+// ABOUTME: Implements stdio-based MCP server with six tools and four resource types for direct note access
 
 package cmd
 
@@ -74,6 +74,9 @@ func runMCPServer(cmd *cobra.Command, args []string) {
 	registerUpdateNoteTool(server, notesService)
 	registerDeleteNoteTool(server, notesService)
 	registerListFoldersTool(server, notesService)
+
+	// Register resources
+	registerResources(server, notesService)
 
 	// Run the server over stdio transport
 	if err := server.Run(context.Background(), &mcp.StdioTransport{}); err != nil {
@@ -369,5 +372,242 @@ func createErrorResult(err error) *mcp.CallToolResult {
 			},
 		},
 		IsError: true,
+	}
+}
+
+// registerResources registers MCP resources for direct note access
+func registerResources(server *mcp.Server, notesService services.NotesService) {
+	// Register resource template for individual notes: note:///{title}
+	server.AddResourceTemplate(
+		&mcp.ResourceTemplate{
+			URITemplate: "note:///{title}",
+			Name:        "note",
+			Title:       "Apple Note",
+			Description: "Access a specific note by title. Returns the note content in HTML format.",
+			MIMEType:    "text/html",
+		},
+		createNoteResourceHandler(notesService),
+	)
+
+	// Register static resource for recent notes: notes:///recent
+	server.AddResource(
+		&mcp.Resource{
+			URI:         "notes:///recent",
+			Name:        "recent-notes",
+			Title:       "Recent Notes",
+			Description: "List of recently modified notes in Apple Notes. Returns note titles sorted by modification date.",
+			MIMEType:    "text/plain",
+		},
+		createRecentNotesResourceHandler(notesService),
+	)
+
+	// Register resource template for search: notes:///search/{query}
+	server.AddResourceTemplate(
+		&mcp.ResourceTemplate{
+			URITemplate: "notes:///search/{query}",
+			Name:        "search-notes",
+			Title:       "Search Notes",
+			Description: "Search for notes by title query. Returns matching note titles.",
+			MIMEType:    "text/plain",
+		},
+		createSearchNotesResourceHandler(notesService),
+	)
+
+	// Register resource template for folder notes: notes:///folder/{folder}
+	server.AddResourceTemplate(
+		&mcp.ResourceTemplate{
+			URITemplate: "notes:///folder/{folder}",
+			Name:        "folder-notes",
+			Title:       "Folder Notes",
+			Description: "Access notes in a specific folder. Returns note titles in the folder.",
+			MIMEType:    "text/plain",
+		},
+		createFolderNotesResourceHandler(notesService),
+	)
+}
+
+// createNoteResourceHandler creates a handler for note:///{title} resources
+func createNoteResourceHandler(notesService services.NotesService) mcp.ResourceHandler {
+	return func(ctx context.Context, req *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
+		// Extract title from URI (format: note:///{title})
+		uri := req.Params.URI
+		if !strings.HasPrefix(uri, "note:///") {
+			return nil, fmt.Errorf("invalid note URI: %s", uri)
+		}
+
+		title := strings.TrimPrefix(uri, "note:///")
+		if title == "" {
+			return nil, fmt.Errorf("note title is required")
+		}
+
+		// URL decode the title
+		title = strings.ReplaceAll(title, "%20", " ")
+
+		// Create a context with timeout for the operation
+		opCtx, cancel := context.WithTimeout(ctx, getOperationTimeout())
+		defer cancel()
+
+		// Get note content
+		content, err := notesService.GetNoteContent(opCtx, title)
+		if err != nil {
+			if errors.Is(err, services.ErrNoteNotFound) {
+				return nil, mcp.ResourceNotFoundError(uri)
+			}
+			return nil, fmt.Errorf("failed to get note content: %w", err)
+		}
+
+		return &mcp.ReadResourceResult{
+			Contents: []*mcp.ResourceContents{
+				{
+					URI:      uri,
+					MIMEType: "text/html",
+					Text:     content,
+				},
+			},
+		}, nil
+	}
+}
+
+// createRecentNotesResourceHandler creates a handler for notes:///recent resource
+func createRecentNotesResourceHandler(notesService services.NotesService) mcp.ResourceHandler {
+	return func(ctx context.Context, req *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
+		// Create a context with timeout for the operation
+		opCtx, cancel := context.WithTimeout(ctx, getOperationTimeout())
+		defer cancel()
+
+		// Get recent notes by searching for all notes (AppleScript returns them sorted)
+		notes, err := notesService.GetRecentNotes(opCtx, 20)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get recent notes: %w", err)
+		}
+
+		// Format the results as newline-separated list of titles
+		var titles []string
+		for _, note := range notes {
+			titles = append(titles, note.Title)
+		}
+		result := strings.Join(titles, "\n")
+
+		if result == "" {
+			result = "No notes found."
+		}
+
+		return &mcp.ReadResourceResult{
+			Contents: []*mcp.ResourceContents{
+				{
+					URI:      req.Params.URI,
+					MIMEType: "text/plain",
+					Text:     result,
+				},
+			},
+		}, nil
+	}
+}
+
+// createSearchNotesResourceHandler creates a handler for notes:///search/{query} resources
+func createSearchNotesResourceHandler(notesService services.NotesService) mcp.ResourceHandler {
+	return func(ctx context.Context, req *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
+		// Extract query from URI (format: notes:///search/{query})
+		uri := req.Params.URI
+		if !strings.HasPrefix(uri, "notes:///search/") {
+			return nil, fmt.Errorf("invalid search URI: %s", uri)
+		}
+
+		query := strings.TrimPrefix(uri, "notes:///search/")
+		if query == "" {
+			return nil, fmt.Errorf("search query is required")
+		}
+
+		// URL decode the query
+		query = strings.ReplaceAll(query, "%20", " ")
+
+		// Create a context with timeout for the operation
+		opCtx, cancel := context.WithTimeout(ctx, getOperationTimeout())
+		defer cancel()
+
+		// Search for notes
+		notes, err := notesService.SearchNotes(opCtx, query)
+		if err != nil {
+			return nil, fmt.Errorf("failed to search notes: %w", err)
+		}
+
+		// Limit results to prevent timeouts
+		totalNotes := len(notes)
+		if totalNotes > maxSearchResults {
+			notes = notes[:maxSearchResults]
+		}
+
+		// Format the results as newline-separated list of titles
+		var titles []string
+		for _, note := range notes {
+			titles = append(titles, note.Title)
+		}
+		result := strings.Join(titles, "\n")
+
+		if result == "" {
+			result = "No notes found matching the query."
+		} else if totalNotes > maxSearchResults {
+			result = fmt.Sprintf("%s\n\n(Showing first %d of %d matching notes)", result, maxSearchResults, totalNotes)
+		}
+
+		return &mcp.ReadResourceResult{
+			Contents: []*mcp.ResourceContents{
+				{
+					URI:      uri,
+					MIMEType: "text/plain",
+					Text:     result,
+				},
+			},
+		}, nil
+	}
+}
+
+// createFolderNotesResourceHandler creates a handler for notes:///folder/{folder} resources
+func createFolderNotesResourceHandler(notesService services.NotesService) mcp.ResourceHandler {
+	return func(ctx context.Context, req *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
+		// Extract folder from URI (format: notes:///folder/{folder})
+		uri := req.Params.URI
+		if !strings.HasPrefix(uri, "notes:///folder/") {
+			return nil, fmt.Errorf("invalid folder URI: %s", uri)
+		}
+
+		folder := strings.TrimPrefix(uri, "notes:///folder/")
+		if folder == "" {
+			return nil, fmt.Errorf("folder name is required")
+		}
+
+		// URL decode the folder name
+		folder = strings.ReplaceAll(folder, "%20", " ")
+
+		// Create a context with timeout for the operation
+		opCtx, cancel := context.WithTimeout(ctx, getOperationTimeout())
+		defer cancel()
+
+		// Get notes in folder
+		notes, err := notesService.GetNotesInFolder(opCtx, folder)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get notes in folder: %w", err)
+		}
+
+		// Format the results as newline-separated list of titles
+		var titles []string
+		for _, note := range notes {
+			titles = append(titles, note.Title)
+		}
+		result := strings.Join(titles, "\n")
+
+		if result == "" {
+			result = fmt.Sprintf("No notes found in folder '%s'.", folder)
+		}
+
+		return &mcp.ReadResourceResult{
+			Contents: []*mcp.ResourceContents{
+				{
+					URI:      uri,
+					MIMEType: "text/plain",
+					Text:     result,
+				},
+			},
+		}, nil
 	}
 }

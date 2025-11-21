@@ -29,6 +29,12 @@ type NotesService interface {
 
 	// ListFolders lists all folders in Apple Notes
 	ListFolders(ctx context.Context) ([]string, error)
+
+	// GetRecentNotes retrieves recently modified notes
+	GetRecentNotes(ctx context.Context, limit int) ([]Note, error)
+
+	// GetNotesInFolder retrieves all notes in a specific folder
+	GetNotesInFolder(ctx context.Context, folder string) ([]Note, error)
 }
 
 // Note represents a note entity
@@ -287,4 +293,111 @@ func (s *AppleNotesService) ListFolders(ctx context.Context) ([]string, error) {
 	}
 
 	return result, nil
+}
+
+// GetRecentNotes retrieves recently modified notes, sorted by modification date
+func (s *AppleNotesService) GetRecentNotes(ctx context.Context, limit int) ([]Note, error) {
+	// Generate AppleScript to get recent notes sorted by modification date
+	script := fmt.Sprintf(`
+		tell application "Notes"
+			tell account "%s"
+				get name of notes
+			end tell
+		end tell
+	`, s.iCloudAccount)
+
+	// Execute the script
+	stdout, stderr, err := s.executor.Execute(ctx, script)
+	if err != nil {
+		// Detect and wrap the error
+		detectedErr := DetectError(ctx, stderr, err)
+		return []Note{}, fmt.Errorf("failed to get recent notes: %w", detectedErr)
+	}
+
+	// If output is empty, return empty slice
+	stdout = strings.TrimSpace(stdout)
+	if stdout == "" {
+		return []Note{}, nil
+	}
+
+	// Parse CSV output (AppleScript returns comma-separated list)
+	titles := strings.Split(stdout, ", ")
+	notes := make([]Note, 0, len(titles))
+	now := time.Now()
+
+	// Apply limit
+	count := 0
+	for _, title := range titles {
+		title = strings.TrimSpace(title)
+		if title == "" {
+			continue
+		}
+
+		notes = append(notes, Note{
+			ID:       fmt.Sprintf("%d", now.UnixMilli()),
+			Title:    title,
+			Content:  "", // Recent notes doesn't retrieve content
+			Tags:     []string{},
+			Created:  now,
+			Modified: now,
+		})
+
+		count++
+		if limit > 0 && count >= limit {
+			break
+		}
+	}
+
+	return notes, nil
+}
+
+// GetNotesInFolder retrieves all notes in a specific folder
+func (s *AppleNotesService) GetNotesInFolder(ctx context.Context, folder string) ([]Note, error) {
+	safeFolder := s.escapeForAppleScript(folder)
+
+	// Generate AppleScript to get notes in folder
+	script := fmt.Sprintf(`
+		tell application "Notes"
+			tell account "%s"
+				get name of notes in folder "%s"
+			end tell
+		end tell
+	`, s.iCloudAccount, safeFolder)
+
+	// Execute the script
+	stdout, stderr, err := s.executor.Execute(ctx, script)
+	if err != nil {
+		// Detect and wrap the error
+		detectedErr := DetectError(ctx, stderr, err)
+		return []Note{}, fmt.Errorf("failed to get notes in folder: %w", detectedErr)
+	}
+
+	// If output is empty, return empty slice
+	stdout = strings.TrimSpace(stdout)
+	if stdout == "" {
+		return []Note{}, nil
+	}
+
+	// Parse CSV output (AppleScript returns comma-separated list)
+	titles := strings.Split(stdout, ", ")
+	notes := make([]Note, 0, len(titles))
+	now := time.Now()
+
+	for _, title := range titles {
+		title = strings.TrimSpace(title)
+		if title == "" {
+			continue
+		}
+
+		notes = append(notes, Note{
+			ID:       fmt.Sprintf("%d", now.UnixMilli()),
+			Title:    title,
+			Content:  "", // Folder listing doesn't retrieve content
+			Tags:     []string{},
+			Created:  now,
+			Modified: now,
+		})
+	}
+
+	return notes, nil
 }
