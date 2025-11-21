@@ -1,0 +1,28 @@
+# Binaries
+mcp-apple-notes-go
+notes-mcp
+
+# Test coverage
+*.out
+coverage.out
+
+# Build artifacts
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Temporary files
+*.swp
+*.swo
+*~
+.DS_Store
+
+# IDE
+.idea/
+.vscode/
+*.iml
+
+# Go workspace
+vendor/
